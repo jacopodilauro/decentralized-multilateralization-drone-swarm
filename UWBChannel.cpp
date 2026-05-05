@@ -4,7 +4,7 @@
 using namespace ns3;
 using namespace Eigen;
 using namespace std;
-
+ 
 NS_OBJECT_ENSURE_REGISTERED (UWBChannel);
 
 TypeId UWBChannel::GetTypeId()
@@ -102,11 +102,7 @@ double UWBChannel::ComputeRangingError(bool is_los, double distance_m)
     return base_error * distance_factor;
 }
 
-ChannelCondition UWBChannel::ComputeChannelCondition(
-    Vector3d tx_pos, 
-    Vector3d rx_pos,
-    double tx_power_dbm
-) {
+ChannelCondition UWBChannel::ComputeChannelCondition( Vector3d tx_pos, Vector3d rx_pos, double tx_power_dbm) {
     ChannelCondition cond;
     double distance_m = (rx_pos - tx_pos).norm();
     

@@ -3,7 +3,7 @@
 #include <cstring>
 
 namespace ns3 {
-
+ 
 NS_LOG_COMPONENT_DEFINE ("UwbHeader");
 NS_OBJECT_ENSURE_REGISTERED (UwbHeader);
 
@@ -65,7 +65,6 @@ void UwbHeader::SetSenderId (uint32_t id) { m_senderId = id; }
 void UwbHeader::SetTxTimestampPs (uint64_t timestamp_ps) { m_txTimestampPs = timestamp_ps; }
 void UwbHeader::SetGpsPosition (double x, double y, double z) { m_gpsX = x; m_gpsY = y; m_gpsZ = z; }
 void UwbHeader::SetVoteBitmask (uint32_t mask) { m_voteBitmask = mask; }
-// Se il vector è troppo piccolo per ospitare questo ID, lo ingrandisco
 void UwbHeader::SetSharedRange(uint32_t targetId, double range) 
 {
     if (targetId >= m_sharedRanges.size()) {

@@ -7,7 +7,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
-
+ 
 #include "UwbSecurityApp.h" 
 #include "Trajectories.h"
 #include "UWBChannel.h"
@@ -19,23 +19,23 @@ NS_LOG_COMPONENT_DEFINE("DistryMlatMain");
 
 int main(int argc, char *argv[])
 {
-    uint32_t numDrones = 8;
-    double simTime = 240.0;
+    uint32_t setnDrones = 8;
+    double setSimTime = 240.0;
     double attackTime = 200.0;
-    double slotTime = 0.005;    
-    double speed = 2.5;
-    int SCENARY_TYPE = 1;    
+    double setSlot = 0.005;    
+    double setSpeed = 2.5;
+    int setScenary = 1;    
 
     std::string targetsId = "0";
     std::string csvFileName = "tdma_security_log.csv";
     
     CommandLine cmd;
-    cmd.AddValue("numDrones", "Numero di droni nello sciame", numDrones);
-    cmd.AddValue("simTime", "Durata della simulazione in secondi", simTime);
-    cmd.AddValue("slotTime", "Durata dello slot TDMA in secondi", slotTime);
-    cmd.AddValue("speed", "Velocità lineare dello sciame", speed);
+    cmd.AddValue("setnDrones", "Numero di droni nello sciame", setnDrones);
+    cmd.AddValue("setSimTime", "Durata della simulazione in secondi", setSimTime);
+    cmd.AddValue("setSlot", "Durata dello slot TDMA in secondi", setSlot);
+    cmd.AddValue("setSpeed", "Velocità lineare dello sciame", setSpeed);
     cmd.AddValue("attackTime", "Tempo in cui il drone viene attaccato", attackTime);
-    cmd.AddValue("scenaryType", "Tipo di scenario scelto", SCENARY_TYPE);
+    cmd.AddValue("setScenary", "Tipo di scenario scelto", setScenary);
     cmd.AddValue("targetsId", "ID del/dei target", targetsId);
     cmd.AddValue("csvName", "Nome del file CSV di log", csvFileName);
     cmd.Parse(argc, argv);
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
     channel->SetEnvironment("outdoor");
 
     NodeContainer swarmNodes;
-    swarmNodes.Create(numDrones);
+    swarmNodes.Create(setnDrones);
     
     // --- INSTALLAZIONE RETE (Antenne e IP) ---
     // Installiamo un'antenna Wi-Fi Ad-Hoc standard per far viaggiare i pacchetti
@@ -77,34 +77,33 @@ int main(int argc, char *argv[])
     ipv4.Assign(devices);
     // ---------------------------------------------------
 
-    // 4. Configurazione della Mobilità
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::WaypointMobilityModel");
     mobility.Install(swarmNodes);
 
-    // Assegniamo le rotte matematiche (Waypoint)
-    for (uint32_t i = 0; i < numDrones; ++i) {
-        AssignTrajectoryToNode(swarmNodes.Get(i), i, numDrones, simTime, speed, 0.5, SCENARY_TYPE);
+    // Assegniamo le rotte (Waypoint)
+    for (uint32_t i = 0; i < setnDrones; ++i) {
+        AssignTrajectoryToNode(swarmNodes.Get(i), i, setnDrones, setSimTime, setSpeed, 0.5, setScenary);
     }    
 
-    // 5. Installazione dell'Applicazione UWB (Il "Cervello" del drone)
+    // Installazione dell'Applicazion
     std::vector<Ptr<UwbSecurityApp>> apps;
 
-    for (uint32_t i = 0; i < numDrones; ++i)
+    for (uint32_t i = 0; i < setnDrones; ++i)
     {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
         
         // Passiamo id, totali, canale radio e puntatore al file CSV
-        app->Setup(i, numDrones, slotTime, channel, &csvFile); 
+        app->Setup(i, setnDrones, setSlot, channel, &csvFile); 
         swarmNodes.Get(i)->AddApplication(app);
         
         app->SetStartTime(Seconds(0.0));
-        app->SetStopTime(Seconds(simTime));
+        app->SetStopTime(Seconds(setSimTime));
 
         apps.push_back(app);
     }
 
-    // 6. Pianificazione dell'Attacco Spoofing sul nodo 0
+    // Pianificazione dell'Attacco Spoofing sul nodo 0
     /*Simulator::Schedule(Seconds(attackTime), [&apps]() {
         if(apps.size() > 0) {
             apps[0]->SetMalicious(true);
@@ -134,9 +133,9 @@ int main(int argc, char *argv[])
         }
     });
 
-    // 7. Avvio del Simulatore
+    // Avvio del Simulatore
     std::cout << ">>> Configurazione completata. Avvio del motore ns-3..." << std::endl;
-    Simulator::Stop(Seconds(simTime + 1.0)); 
+    Simulator::Stop(Seconds(setSimTime + 1.0)); 
     Simulator::Run();
     Simulator::Destroy();
 

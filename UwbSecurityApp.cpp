@@ -4,250 +4,392 @@
 #include "ns3/udp-socket-factory.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
-#include "ns3/node-list.h" 
+#include "ns3/node-list.h"
 #include "SimulationLogger.h"
+#include <cmath>
 
 NS_LOG_COMPONENT_DEFINE ("UwbSecurityApp");
 NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 
+// ---------------------------------------------------------------------------
+// Soglia Mahalanobis per allarme spoofing.
+//
+// La distanza di Mahalanobis segue (approssimativamente) una distribuzione
+// chi con n gradi di libertà. Per n=4 misure, chi(4, 99.9%) ≈ 4.64.
+// Usiamo una soglia conservativa per ridurre i falsi positivi.
+// ---------------------------------------------------------------------------
+static constexpr double MAHAL_ALARM_THRESHOLD = 4.5;
+static constexpr double MAHAL_OK_THRESHOLD    = 3.0;
+static constexpr int    CONSECUTIVE_NEEDED    = 5;
+
+static constexpr double c = 299792458.0; // [m/s]
+
 TypeId UwbSecurityApp::GetTypeId (void) {
-    static TypeId tid = TypeId ("UwbSecurityApp").SetParent<Application> ().SetGroupName("Custom").AddConstructor<UwbSecurityApp> ();
+    static TypeId tid = TypeId ("UwbSecurityApp")
+        .SetParent<Application>()
+        .SetGroupName("Custom")
+        .AddConstructor<UwbSecurityApp>();
     return tid;
 }
 
-UwbSecurityApp::UwbSecurityApp() : m_id(0), m_swarmSize(6), m_isMalicious(false), m_attackStartTime(0.0), m_slotDuration(0.0), m_port(9), m_csv(nullptr) {
-  //  for(int i=0; i<6; i++) m_myLastRanges[i] = -1.0; // Inizializza array
-}
+UwbSecurityApp::UwbSecurityApp()
+    : m_id(0), m_swarmSize(6), m_isMalicious(false),
+      m_attackStartTime(0.0), m_slotDuration(0.0),
+      m_port(9), m_csv(nullptr) {}
+
 UwbSecurityApp::~UwbSecurityApp() { m_socket = 0; }
 
-void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration, Ptr<UWBChannel> channel, std::ofstream* csv) {
-    m_id = id; m_swarmSize = swarmSize; m_channel = channel; m_csv = csv;
+void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
+                            Ptr<UWBChannel> channel, std::ofstream* csv) {
+    m_id          = id;
+    m_swarmSize   = swarmSize;
+    m_channel     = channel;
+    m_csv         = csv;
     m_slotDuration = slotDuration;
     m_myLastRanges.assign(swarmSize, -1.0);
+    m_myLastRangesLos.assign(swarmSize, true);
 }
 
 void UwbSecurityApp::SetMalicious(bool isMalicious) {
-    if (isMalicious && !m_isMalicious) m_attackStartTime = Simulator::Now().GetSeconds();
+    if (isMalicious && !m_isMalicious)
+        m_attackStartTime = Simulator::Now().GetSeconds();
     m_isMalicious = isMalicious;
 }
 bool UwbSecurityApp::IsMalicious() const { return m_isMalicious; }
 
-void UwbSecurityApp::StartApplication (void) {
+// ---------------------------------------------------------------------------
+// Application lifecycle
+// ---------------------------------------------------------------------------
+
+void UwbSecurityApp::StartApplication() {
     if (!m_socket) {
-        m_socket = Socket::CreateSocket (GetNode (), UdpSocketFactory::GetTypeId ());
-        InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), m_port);
-        m_socket->Bind (local);
+        m_socket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
+        m_socket->Bind(InetSocketAddress(Ipv4Address::GetAny(), m_port));
     }
-    m_socket->SetRecvCallback (MakeCallback (&UwbSecurityApp::ReceivePacket, this));
-    m_socket->SetAllowBroadcast (true);
+    m_socket->SetRecvCallback(MakeCallback(&UwbSecurityApp::ReceivePacket, this));
+    m_socket->SetAllowBroadcast(true);
 
     double firstTxTime = m_id * m_slotDuration;
-    m_sendEvent = Simulator::Schedule (Seconds (firstTxTime), &UwbSecurityApp::SendUwbMessage, this);
+    m_sendEvent = Simulator::Schedule(Seconds(firstTxTime),
+                                       &UwbSecurityApp::SendUwbMessage, this);
 }
 
-void UwbSecurityApp::StopApplication (void) {
-    if (m_socket) m_socket->Close ();
-    Simulator::Cancel (m_sendEvent);
+void UwbSecurityApp::StopApplication() {
+    if (m_socket) m_socket->Close();
+    Simulator::Cancel(m_sendEvent);
 }
 
-void UwbSecurityApp::SendUwbMessage () {
+// ---------------------------------------------------------------------------
+// TX: broadcast del proprio stato + range condivisi
+// ---------------------------------------------------------------------------
+
+void UwbSecurityApp::SendUwbMessage() {
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
-    uint32_t myVoteMask = GetVoteBitmask();
     double currentSimTime = Simulator::Now().GetSeconds();
 
     UwbHeader header;
     header.SetSenderId(m_id);
-    header.SetTxTimestampPs((uint64_t)(currentSimTime * 1e12)); 
+    header.SetTxTimestampPs((uint64_t)(currentSimTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
-    header.SetVoteBitmask(myVoteMask);
+    header.SetVoteBitmask(GetVoteBitmask());
 
-    // Trasmettiamo al mondo anche le nostre letture di distanza recenti!
-    for(uint32_t i=0; i< m_swarmSize; i++) {
+    for (uint32_t i = 0; i < m_swarmSize; ++i)
         header.SetSharedRange(i, m_myLastRanges[i]);
-    }
 
-    Ptr<Packet> packet = Create<Packet> ();
+    Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
-    
-    InetSocketAddress dest (Ipv4Address("255.255.255.255"), m_port);
-    m_socket->SendTo(packet, 0, dest);
+    m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
 
-    double timeToNextTurn = m_swarmSize * m_slotDuration;
-    m_sendEvent = Simulator::Schedule (Seconds (timeToNextTurn), &UwbSecurityApp::SendUwbMessage, this);
+    m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
+                                       &UwbSecurityApp::SendUwbMessage, this);
 }
 
-void UwbSecurityApp::ReceivePacket (Ptr<Socket> socket) {
+// ---------------------------------------------------------------------------
+// RX: parsing del pacchetto e cache dei dati
+// ---------------------------------------------------------------------------
+
+void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
     Ptr<Packet> packet;
     Address from;
-    while ((packet = socket->RecvFrom (from))) {
+    while ((packet = socket->RecvFrom(from))) {
         UwbHeader header;
-        packet->RemoveHeader (header);
+        packet->RemoveHeader(header);
 
         uint32_t senderId = header.GetSenderId();
-        if (senderId == m_id) continue; 
+        if (senderId == m_id) continue;
 
         double txTimeSec = header.GetTxTimestampPs() / 1e12;
         Eigen::Vector3d claimedGps(header.GetGpsX(), header.GetGpsY(), header.GetGpsZ());
-        
-        //salvataggio dati ricevuti in cache
-        m_lastKnownGps[senderId] = claimedGps;
+
+        // Cache GPS e timestamp del sender
+        m_lastKnownGps[senderId]  = claimedGps;
         m_lastKnownTime[senderId] = txTimeSec;
-        for(uint32_t i=0; i < m_swarmSize; i++) {
+
+        // Cache dei range condivisi dal sender verso tutti gli altri nodi
+        // Nota: m_networkRanges[sender][target] = range misurato da sender verso target
+        for (uint32_t i = 0; i < m_swarmSize; ++i) {
             double r = header.GetSharedRange(i);
-            
-            if(r > 0.0)
-            {
-                m_networkRanges[senderId][i] = header.GetSharedRange(i);
+            if (r > 0.0) {
+                m_networkRanges[senderId][i]     = r;
                 m_networkRangeTimes[senderId][i] = txTimeSec;
+                // Condividiamo anche la LOS flag — non disponibile nel pacchetto,
+                // usiamo la nostra stima locale come approssimazione
+                m_networkRangesLos[senderId][i]  = true; // conservativo
             }
         }
-        
+
         ProcessRanging(senderId, claimedGps, txTimeSec);
     }
 }
 
-void UwbSecurityApp::ProcessRanging (uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec)
+// ---------------------------------------------------------------------------
+// Core: ranging fisico + costruzione misure + EKF + allarme
+// ---------------------------------------------------------------------------
+
+void UwbSecurityApp::ProcessRanging(uint32_t senderId,
+                                      Eigen::Vector3d claimedGps,
+                                      double txTimeSec)
 {
     double currentTime = Simulator::Now().GetSeconds();
 
-    // Il canale simulato interviene qui solo per calcolare la fisica del volo del pacchetto
+    // -----------------------------------------------------------------------
+    // 1. RANGING FISICO (solo da dati locali — nessun accesso a ground truth)
+    //
+    // La posizione VERA del sender è inaccessibile in un sistema reale.
+    // Usiamo la nostra posizione reale (legittima: è il nostro stesso nodo)
+    // e il canale UWB per simulare ciò che fisicamente misuriamo.
+    //
+    // In ns-3 dobbiamo ancora usare NodeList per ottenere la posizione
+    // del sender per calcolare il canale — questo è l'unico punto in cui
+    // lo usiamo, e rappresenta la fisica del segnale radio, NON
+    // un'informazione disponibile a livello applicativo.
+    // -----------------------------------------------------------------------
+
     Ptr<MobilityModel> myMobility = GetNode()->GetObject<MobilityModel>();
-    Ptr<MobilityModel> senderMobility = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
-    Eigen::Vector3d myTruePos(myMobility->GetPosition().x, myMobility->GetPosition().y, myMobility->GetPosition().z);
-    Eigen::Vector3d senderTruePos(senderMobility->GetPosition().x, senderMobility->GetPosition().y, senderMobility->GetPosition().z);
+    Eigen::Vector3d myTruePos(
+        myMobility->GetPosition().x,
+        myMobility->GetPosition().y,
+        myMobility->GetPosition().z);
 
+    // Posizione vera del sender — usata SOLO per simulare il canale fisico
+    Ptr<MobilityModel> senderMobility =
+        NodeList::GetNode(senderId)->GetObject<MobilityModel>();
+    Eigen::Vector3d senderTruePos(
+        senderMobility->GetPosition().x,
+        senderMobility->GetPosition().y,
+        senderMobility->GetPosition().z);
+
+    // Simulazione fisica del canale UWB
     ChannelCondition cond = m_channel->ComputeChannelCondition(senderTruePos, myTruePos, 0.0);
-    const double c = 299792458.0;
-    double distTrue = (myTruePos - senderTruePos).norm();
-    double tof = distTrue / c;
-    double measuredToa = txTimeSec + tof + (cond.ranging_error_m / c);
 
-    // Salvo la MIA misurazione in locale per condividerla al mio prossimo turno
-    double myMeasuredDistance = (measuredToa - txTimeSec) * c;
-    m_myLastRanges[senderId] = myMeasuredDistance;
+    // TOA misurata = txTime + tof_vero + errore_ranging_fisico
+    // L'errore è già espresso in metri da UWBChannel → convertiamo in secondi
+    double distTrue  = (myTruePos - senderTruePos).norm();
+    double tof_true  = distTrue / c;
+    double measuredToa = txTimeSec + tof_true + (cond.ranging_error_m / c);
+
+    // Range misurato da me verso il sender
+    double myMeasuredRange = (measuredToa - txTimeSec) * c;
+    m_myLastRanges[senderId]    = myMeasuredRange;
+    m_myLastRangesLos[senderId] = cond.is_los;
+
+    // -----------------------------------------------------------------------
+    // 2. INIZIALIZZAZIONE EKF (al primo contatto con questo sender)
+    // -----------------------------------------------------------------------
 
     if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
+        // Inizializziamo dalla GPS dichiarata: è l'unico dato disponibile.
+        // L'EKF convergerà rapidamente se il GPS è onesto,
+        // oppure divergerà rivelando l'attacco.
         m_ekfBank[senderId].Init(claimedGps);
-        m_lastCalcTime[senderId] = currentTime;
-        m_alarms[senderId] = false;
-        m_alarmCounter[senderId] = 0;
-        m_okCounter[senderId] = 0;
+        m_lastCalcTime[senderId]  = currentTime;
+        m_alarms[senderId]        = false;
+        m_alarmCounter[senderId]  = 0;
+        m_okCounter[senderId]     = 0;
+        return; // prima misura: init, poi aspettiamo il secondo pacchetto
     }
+
+    // -----------------------------------------------------------------------
+    // 3. PREDICT
+    // -----------------------------------------------------------------------
 
     double dt = currentTime - m_lastCalcTime[senderId];
-    if (dt > 0) {
-        m_ekfBank[senderId].Predict(dt);
-        
-        std::vector<EKF::Msmnt> inputData;
-        
-        // 1. Aggiungo la MIA misurazione locale (l'unica cosa che conosco direttamente)
-        EKF::Msmnt myData;
-        myData.anchor_pos = GetCurrentGpsPosition(); 
-        myData.toa = measuredToa;
-        myData.tx_timestamp = txTimeSec; 
+    if (dt <= 0) return;
+    m_ekfBank[senderId].Predict(dt);
 
-        inputData.push_back(myData);
+    // -----------------------------------------------------------------------
+    // 4. COSTRUZIONE VETTORE MISURE
+    //
+    // Misura diretta (is_direct = true):
+    //   anchor_pos = mia posizione GPS (non spoofabile: è la mia)
+    //   Il bias nell'EKF compensa offset clock sender-receiver
+    //   H(i,6) = 1.0
+    //
+    // Misure peer (is_direct = false):
+    //   anchor_pos = GPS dichiarata del peer k (potenzialmente non fidata)
+    //   Il bias tra sender e k è ignoto → H(i,6) = 0.0
+    //   R aumentato per compensare l'incertezza aggiuntiva
+    // -----------------------------------------------------------------------
 
-        // 2. FUSIONE DATI: Uso le misurazioni condivise via rete dagli altri droni!
-        for (uint32_t k = 0; k < m_swarmSize; ++k) {
-            if (k == m_id || k == senderId) continue; 
-            
-            // Se in passato il drone k mi ha inviato la sua distanza dal senderId
-            if (m_networkRanges[k].count(senderId) && m_networkRanges[k][senderId] > 0) {
-                // E se mi ricordo il suo ultimo GPS dichiarato
-                if (m_lastKnownGps.count(k) && m_lastKnownTime.count(k)) {
-                    
-                    // Non voglio usare i dati vecchi quindi
-                    double maxAge = std::min(2.0, 1.0 * m_swarmSize * m_slotDuration);
-                    double age = currentTime - m_networkRangeTimes[k][senderId];
-                    if (age > maxAge) continue;
+    std::vector<EKF::Msmnt> inputData;
 
-                    EKF::Msmnt peerData;
-                    peerData.anchor_pos = m_lastKnownGps[k]; // Mi fido del suo GPS
-                    peerData.tx_timestamp = m_lastKnownTime[k]; // Adattamento per l'EKF
-                    peerData.toa = m_lastKnownTime[k] + (m_networkRanges[k][senderId] / c); // Uso la sua distanza calcolata
-                    
-                    inputData.push_back(peerData);
-                }
-            }
-        }
+    // Misura diretta
+    EKF::Msmnt myData;
+    myData.anchor_pos   = GetCurrentGpsPosition(); // mia posizione (fidata)
+    myData.toa          = measuredToa;
+    myData.tx_timestamp = txTimeSec;
+    myData.is_direct    = true;
+    myData.is_los       = cond.is_los;
+    inputData.push_back(myData);
 
-        // Il filtro scatterà SOLO se abbiamo raccolto almeno 3 informazioni, 
-        // emulando un vero delay di propagazione della conoscenza!
-        if (inputData.size() >= 4) {
-            m_ekfBank[senderId].Update(inputData);
-        }
-        m_lastCalcTime[senderId] = currentTime;
+    // Misure peer: nodo k ha misurato la distanza verso senderId
+    // e l'ha condivisa nel suo ultimo broadcast
+    double maxAge = std::min(2.0, 2.0 * m_swarmSize * m_slotDuration);
+
+    for (uint32_t k = 0; k < m_swarmSize; ++k) {
+        if (k == m_id || k == senderId) continue;
+
+        // Verifica disponibilità del range k→sender
+        auto rangeIt = m_networkRanges.find(k);
+        if (rangeIt == m_networkRanges.end()) continue;
+        auto rangeToSender = rangeIt->second.find(senderId);
+        if (rangeToSender == rangeIt->second.end()) continue;
+        if (rangeToSender->second <= 0.0) continue;
+
+        // Verifica freschezza della misura
+        double age = currentTime - m_networkRangeTimes[k][senderId];
+        if (age > maxAge) continue;
+
+        // Verifica disponibilità GPS del peer k
+        if (!m_lastKnownGps.count(k) || !m_lastKnownTime.count(k)) continue;
+
+        double peerRange  = rangeToSender->second;
+        // Ricostruiamo una TOA fittizia coerente con il modello EKF:
+        // toa_fittizio - tx_timestamp_fittizio = peerRange / c
+        // Usiamo tx_timestamp del sender come riferimento comune
+        // Questo è fisicamente corretto perché:
+        //   range_k = c * (toa_at_k - txTimeSec_sender) + bias_k
+        // Poiché bias_k è ignoto, lo escludiamo dal modello (H(i,6)=0)
+        // e aumentiamo R per assorbire questa incertezza
+
+        EKF::Msmnt peerData;
+        peerData.anchor_pos   = m_lastKnownGps[k];  // GPS del peer k (non verificato)
+        peerData.tx_timestamp = txTimeSec;           // riferimento temporale comune
+        peerData.toa          = txTimeSec + (peerRange / c); // toa fittizio
+        peerData.is_direct    = false;               // → H(i,6)=0, R aumentato
+        peerData.is_los       = m_networkRangesLos.count(k) ?
+                                (m_networkRangesLos[k].count(senderId) ?
+                                 m_networkRangesLos[k][senderId] : true) : true;
+
+        inputData.push_back(peerData);
     }
 
-    Eigen::Vector3d calculatedPos = m_ekfBank[senderId].GetPosition();
-    
-    
-    // --- DEBUG TEMPORANEO ---
-    if (m_id == 1 && senderId == 0) {
-        std::cout << "t=" << currentTime 
-                  << " ekf_err=" << (calculatedPos - senderTruePos).norm()
-                  << " claimed_err=" << (claimedGps - senderTruePos).norm()
-                  << std::endl;
+    // -----------------------------------------------------------------------
+    // 5. UPDATE — almeno 4 misure per localizzazione 3D+bias
+    // -----------------------------------------------------------------------
+
+    if ((int)inputData.size() >= 4) {
+        m_ekfBank[senderId].Update(inputData);
     }
-    // --- FINE DEBUG ---
+    m_lastCalcTime[senderId] = currentTime;
 
+    // -----------------------------------------------------------------------
+    // 6. RILEVAMENTO SPOOFING con soglia adattiva (Mahalanobis)
+    //
+    // Invece di una soglia fissa in metri (dipendente dalla geometria),
+    // usiamo la distanza di Mahalanobis dell'innovazione EKF.
+    // Questa è adimensionale e tiene conto dell'incertezza corrente.
+    //
+    // Confronto con soglia euclidea fissa:
+    //   Prima: if (error > 10)   // 10 m fissi — sbagliato in geometrie cattive
+    //   Ora:   if (mahal > 4.5)  // soglia statistica adattiva
+    //
+    // Chi² con n gradi di libertà, p=0.999:
+    //   n=4 → 18.47  (ma usiamo sqrt → ~4.3)
+    //   n=7 → 24.32  (sqrt → ~4.9)
+    // -----------------------------------------------------------------------
 
-    double error = (calculatedPos - claimedGps).norm();
-    
-    // Logica di scatto allarme
-    /* Logica vecchia, davedere
-    if (error > 10.0) m_alarms[senderId] = true;
-    else m_alarms[senderId] = false;
-    */
-    // --- inizio Logica nuova, per evitare che gli allarmi ballino
-    if(error > 10) 
-    {
-        m_alarmCounter[senderId]++; 
+    double mahal = m_ekfBank[senderId].GetMahalanobisDistance();
+    double posStd = m_ekfBank[senderId].GetPositionStdDev();
+
+    // Soglia euclidea adattiva come backup (3-sigma dalla covarianza EKF)
+    double adaptiveThreshold = std::max(5.0, 3.0 * posStd);
+    Eigen::Vector3d estimatedPos = m_ekfBank[senderId].GetPosition();
+    double euclError = (estimatedPos - claimedGps).norm();
+
+    // Allarme: Mahalanobis alta O errore euclideo > soglia adattiva
+    bool suspiciousNow = (mahal > MAHAL_ALARM_THRESHOLD) ||
+                         (euclError > adaptiveThreshold);
+
+    if (suspiciousNow) {
+        m_alarmCounter[senderId]++;
         m_okCounter[senderId] = 0;
-    }else
-    {
+    } else {
         m_okCounter[senderId]++;
         m_alarmCounter[senderId] = 0;
     }
-    if (m_alarmCounter[senderId] >= 5) { m_alarms[senderId] = true; }
-    if (m_okCounter[senderId] >= 5) { m_alarms[senderId] = false; }
-    // --- fine
 
+    if (m_alarmCounter[senderId] >= CONSECUTIVE_NEEDED)
+        m_alarms[senderId] = true;
+    if (m_okCounter[senderId] >= CONSECUTIVE_NEEDED)
+        m_alarms[senderId] = false;
+
+    // -----------------------------------------------------------------------
+    // 7. DEBUG (solo coppia 1→0)
+    // -----------------------------------------------------------------------
+
+    if (m_id == 1 && senderId == 0) {
+        std::cout << "t=" << currentTime
+                  << " mahal="   << mahal
+                  << " ekf_err=" << (estimatedPos - senderTruePos).norm()
+                  << " claimed_err=" << (claimedGps - senderTruePos).norm()
+                  << " posStd="  << posStd
+                  << " alarm="   << m_alarms[senderId]
+                  << " n_msmnt=" << inputData.size()
+                  << std::endl;
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. LOG CSV
+    // -----------------------------------------------------------------------
 
     if (m_csv && m_csv->is_open()) {
-        Eigen::Vector3d recoveredPos = claimedGps; 
-        if (m_alarms[senderId]) recoveredPos = calculatedPos; 
+        Eigen::Vector3d recoveredPos = m_alarms[senderId] ? estimatedPos : claimedGps;
 
         SimulationLogger::LogObservation(
             currentTime, senderId, m_id,
-            calculatedPos, claimedGps, senderTruePos, 
-            m_alarms[senderId], recoveredPos, *m_csv
-        );
+            estimatedPos, claimedGps, senderTruePos,
+            m_alarms[senderId], recoveredPos, *m_csv);
     }
 }
 
+// ---------------------------------------------------------------------------
+// GPS con attacco spoofing (ramp lineare)
+// ---------------------------------------------------------------------------
+
 Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
     Ptr<MobilityModel> mobility = GetNode()->GetObject<MobilityModel>();
-    Eigen::Vector3d gps(mobility->GetPosition().x, mobility->GetPosition().y, mobility->GetPosition().z);
+    Eigen::Vector3d gps(mobility->GetPosition().x,
+                        mobility->GetPosition().y,
+                        mobility->GetPosition().z);
 
     if (m_isMalicious) {
-        const double TARGET_OFFSET = 15.0; 
-        const double RAMP_DURATION = 10.0; 
-        double time_elapsed = Simulator::Now().GetSeconds() - m_attackStartTime;
-        double progress = time_elapsed / RAMP_DURATION;
-        if (progress < 0.0) progress = 0.0;
-        if (progress > 1.0) progress = 1.0;
-        
-        gps.y() += (TARGET_OFFSET * progress); 
+        const double TARGET_OFFSET = 15.0; // [m] offset massimo
+        const double RAMP_DURATION = 10.0; // [s] durata rampa
+        double elapsed  = Simulator::Now().GetSeconds() - m_attackStartTime;
+        double progress = std::min(1.0, std::max(0.0, elapsed / RAMP_DURATION));
+        gps.y() += TARGET_OFFSET * progress;
     }
     return gps;
 }
 
+// ---------------------------------------------------------------------------
+// Vote bitmask: bit=0 se il nodo è considerato malevolo
+// ---------------------------------------------------------------------------
+
 uint32_t UwbSecurityApp::GetVoteBitmask() {
     uint32_t mask = 0xFFFFFFFF;
-    for (auto const& pair : m_alarms) {
-        if (pair.second) mask &= ~(1 << pair.first);
-    }
+    for (auto const& pair : m_alarms)
+        if (pair.second) mask &= ~(1u << pair.first);
     return mask;
 }
