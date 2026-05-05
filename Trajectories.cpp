@@ -161,10 +161,10 @@ namespace {
             double t_reach = (buildingCenter.x() - INITIAL_CENTER.x()) / speed; 
             double timeOrbiting = t - t_reach;
             
-            double omega = 0.15; 
+            double omega = 0.05; 
             double theta = (2.0 * M_PI * id / total) + (omega * timeOrbiting);
             // Sfasamento verticale morbido, distribuito meglio per tanti droni (id * 0.5)
-            double altitudine = 50.0 + 25.0 * sin(timeOrbiting * 0.1 + id * 0.5);
+            double altitudine = 50.0 + 15.0 * sin(timeOrbiting * 0.05 + id * 0.5);
 
             Vector3d pos_Orbit(
                 buildingCenter.x() + buildingRadius * cos(theta),
@@ -174,7 +174,7 @@ namespace {
 
             // 3. Logica di Blending / Transizione
             // Tempo aumentato a 20s per permettere ai droni di coda di curvare senza accelerazioni impossibili
-            double transition_duration = 20.0; 
+            double transition_duration = 45.0; 
             double t_start_transition = t_reach - transition_duration;
 
             if (t <= t_start_transition) {
@@ -185,8 +185,10 @@ namespace {
                 // FASE 2: Transizione fluida (manovra di allargamento)
                 double progress = (t - t_start_transition) / transition_duration;
                 // Funzione Smoothstep
-                double alpha = progress * progress * (3.0 - 2.0 * progress); 
-                
+                //double alpha = progress * progress * (3.0 - 2.0 * progress); 
+                double alpha = progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
+                //Ken Perlin creatore degli effetti speciali di Tron
+
                 return pos_V * (1.0 - alpha) + pos_Orbit * alpha;
             } 
             else {

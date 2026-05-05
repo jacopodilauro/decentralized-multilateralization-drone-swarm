@@ -14,7 +14,7 @@ public:
         double          tx_timestamp;// timestamp [s]
         bool            is_direct;   // true = misura diretta, false = peer
         bool            is_los;      // true = LOS, false = NLOS
-
+        double          range = 0.0;
         Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true) {}
     };
 

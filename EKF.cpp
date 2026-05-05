@@ -30,7 +30,7 @@ void EKF::Init(const Vector3d& init_pos) {
     m_P = MatrixXd::Identity(7, 7);
     m_P.block<3,3>(0,0) *= 10.0;  // incertezza posizione iniziale [m²]
     m_P.block<3,3>(3,3) *= 2.0;   // incertezza velocità iniziale  [(m/s)²]
-    m_P(6,6)             = 25.0;  // incertezza bias iniziale [m²]
+    m_P(6,6)             = 1000.0;  // incertezza bias iniziale [m²]
                                    // (equivale a circa 83 ns di incertezza di clock)
 
     // Rumore di processo Q:
@@ -42,8 +42,10 @@ void EKF::Init(const Vector3d& init_pos) {
     m_Q = MatrixXd::Zero(7, 7);
     // I valori effettivi vengono applicati in Predict() scalati per dt
     // Per ora definiamo le densità spettrali di potenza (PSD):
-    m_q_acc   = 0.5;   // [m²/s³] PSD accelerazione non modellata
-    m_q_drift = 0.05;  // [m²/s]  PSD drift di clock (≈ 0.1 m/s tipico per UWB)
+    m_q_acc   = 0.5;   // [m²/s³] PSD accelerazione 
+    m_q_drift = 0.01;  // [m²/s]  PSD drift di clock
+    //m_q_acc   = 0.05;   // [m²/s³] PSD accelerazione 
+    //m_q_drift = 0.01;
 }
 
 void EKF::Predict(double dt) {
@@ -96,51 +98,56 @@ void EKF::Update(const vector<Msmnt>& measurements) {
     for (int i = 0; i < n; ++i) {
         const Msmnt& m = measurements[i];
 
-        // Distanza misurata (pseudorange)
-        double pseudorange = (m.toa - m.tx_timestamp) * c;
-        Z(i) = pseudorange;
-
         double geo_dist  = (est_pos - m.anchor_pos).norm();
         double safe_dist = geo_dist + 1e-9;
 
-        // Derivate parziali ∂||p-a||/∂p  (Jacobiana)
+        // Jacobiana ∂||p-a||/∂p
         H(i, 0) = (est_pos.x() - m.anchor_pos.x()) / safe_dist;
         H(i, 1) = (est_pos.y() - m.anchor_pos.y()) / safe_dist;
         H(i, 2) = (est_pos.z() - m.anchor_pos.z()) / safe_dist;
         H(i, 3) = 0.0; H(i, 4) = 0.0; H(i, 5) = 0.0;
 
         if (m.is_direct) {
-            // --- MISURA DIRETTA: questo nodo è il ricevitore ---
+            // MISURA DIRETTA: pseudorange TOA con bias di clock
+            // Z = distanza fisica misurata tramite TOA
+            // h = distanza geometrica stimata + bias stimato
+            Z(i)    = (m.toa - m.tx_timestamp) * c;
             h(i)    = geo_dist + est_bias;
             H(i, 6) = 1.0;
-            R(i, i) = m.is_los ? 0.0225 : 0.36;
+            R(i, i) = m.is_los ? 0.09 : 0.36;  // σ: 30cm LOS, 60cm NLOS
         } else {
-            // --- MISURA PEER: range osservato da un terzo nodo k ---
-            h(i)    = geo_dist;   // no bias
-            H(i, 6) = 0.0;        // bias non osservabile
-            R(i, i) = m.is_los ? 1.36 : 2.00;
+            // MISURA PEER: range puro in metri, senza timestamp fittizio
+            // Z = distanza misurata dal peer k verso il sender (già in metri)
+            // h = distanza geometrica stimata (nessun bias: clock di k ignoto)
+            // Usando m.range direttamente evitiamo di inventare un timestamp
+            // che non esiste e che causava l'errore crescente nelle traiettorie rotanti
+            Z(i)    = m.range;
+            h(i)    = geo_dist;
+            H(i, 6) = 0.0;
+            R(i, i) = m.is_los ? 1.5 : 4.0;    // σ: ~1.2m LOS, 2m NLOS
         }
-
-        Z(i) = pseudorange;
-        h(i) += 0.0;
     }
 
     VectorXd y = Z - h;
 
-    // covarianza
+    // Covarianza innovazione
     MatrixXd S = H * m_P * H.transpose() + R;
 
     MatrixXd K = m_P * H.transpose() * S.ldlt().solve(MatrixXd::Identity(n, n));
 
     m_state = m_state + K * y;
 
-    // Aggiornamento covarianza — forma Joseph per stabilità numerica
+    // Aggiornamento covarianza forma Joseph
     MatrixXd I_KH = MatrixXd::Identity(7, 7) - K * H;
     m_P = I_KH * m_P * I_KH.transpose() + K * R * K.transpose();
 
-    // Salviamo S per la Mahalanobis distance (usata per l'allarme)
-    m_last_S = S;
-    m_last_y = y;
+    // Salviamo innovazione SOLO della misura diretta (indice 0).
+    // Le misure peer hanno rumore geometrico durante le manovre che
+    // causerebbe falsi allarmi se incluse nella Mahalanobis.
+    // La misura diretta è fisicamente stabile e non falsificabile
+    // senza che il ranging UWB lo rilevi.
+    m_last_y = y.head(1);
+    m_last_S = S.block<1,1>(0,0);
 }
 
 // ---------------------------------------------------------------------------

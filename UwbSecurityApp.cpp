@@ -18,9 +18,15 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 // chi con n gradi di libertà. Per n=4 misure, chi(4, 99.9%) ≈ 4.64.
 // Usiamo una soglia conservativa per ridurre i falsi positivi.
 // ---------------------------------------------------------------------------
-static constexpr double MAHAL_ALARM_THRESHOLD = 4.5;
+// Soglia Mahalanobis calcolata SOLO sulla misura diretta (1 grado di libertà).
+// Con 1 misura: Mahal = |y_direct| / sqrt(S_direct)
+// In assenza di attacco vale circa 1.0 (rumore normale).
+// Soglia = 5.0 → errore ranging > 5 sigma (probabilità < 0.00006%)
+static constexpr double MAHAL_ALARM_THRESHOLD = 5.0;
 static constexpr double MAHAL_OK_THRESHOLD    = 3.0;
-static constexpr int    CONSECUTIVE_NEEDED    = 5;
+// Campioni consecutivi necessari per alzare/abbassare l'allarme.
+// Con slot=5ms e 10 droni, 1 giro = 50ms → 10 campioni = 500ms di persistenza
+static constexpr int    CONSECUTIVE_NEEDED    = 10;
 
 static constexpr double c = 299792458.0; // [m/s]
 
@@ -48,6 +54,10 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
     m_slotDuration = slotDuration;
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
+
+    m_rng.seed(m_id + 12345); 
+    std::uniform_real_distribution<double> dist_offset(-1e-9, 1e-9);
+    m_clockOffset = dist_offset(m_rng);
 }
 
 void UwbSecurityApp::SetMalicious(bool isMalicious) {
@@ -86,10 +96,11 @@ void UwbSecurityApp::StopApplication() {
 void UwbSecurityApp::SendUwbMessage() {
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
     double currentSimTime = Simulator::Now().GetSeconds();
+    double localTime = currentSimTime + m_clockOffset;
 
     UwbHeader header;
     header.SetSenderId(m_id);
-    header.SetTxTimestampPs((uint64_t)(currentSimTime * 1e12));
+    header.SetTxTimestampPs((uint64_t)(localTime * 1e12)); //currentSimTime altrimetni 
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
     header.SetVoteBitmask(GetVoteBitmask());
 
@@ -120,6 +131,19 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         double txTimeSec = header.GetTxTimestampPs() / 1e12;
         Eigen::Vector3d claimedGps(header.GetGpsX(), header.GetGpsY(), header.GetGpsZ());
+
+        //cancella
+        if (m_lastKnownGps.count(senderId) && m_lastKnownTime.count(senderId)) {
+           double dt_gps = txTimeSec - m_lastKnownTime[senderId];
+            if (dt_gps > 0.001 && dt_gps < 2.0) {
+                Eigen::Vector3d vel = (claimedGps - m_lastKnownGps[senderId]) / dt_gps;
+                if (vel.norm() < 50.0) {  // scarta valori impossibili (>50 m/s)
+                    m_lastKnownVelocity[senderId] = vel;
+                }
+            }
+        }
+
+
 
         // Cache GPS e timestamp del sender
         m_lastKnownGps[senderId]  = claimedGps;
@@ -166,27 +190,33 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     // -----------------------------------------------------------------------
 
     Ptr<MobilityModel> myMobility = GetNode()->GetObject<MobilityModel>();
-    Eigen::Vector3d myTruePos(
-        myMobility->GetPosition().x,
-        myMobility->GetPosition().y,
-        myMobility->GetPosition().z);
+    Eigen::Vector3d myTruePos( myMobility->GetPosition().x, myMobility->GetPosition().y, myMobility->GetPosition().z);
 
     // Posizione vera del sender — usata SOLO per simulare il canale fisico
-    Ptr<MobilityModel> senderMobility =
-        NodeList::GetNode(senderId)->GetObject<MobilityModel>();
-    Eigen::Vector3d senderTruePos(
-        senderMobility->GetPosition().x,
-        senderMobility->GetPosition().y,
-        senderMobility->GetPosition().z);
+    Ptr<MobilityModel> senderMobility = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
+    Eigen::Vector3d senderTruePos( senderMobility->GetPosition().x, senderMobility->GetPosition().y, senderMobility->GetPosition().z);
 
     // Simulazione fisica del canale UWB
     ChannelCondition cond = m_channel->ComputeChannelCondition(senderTruePos, myTruePos, 0.0);
 
-    // TOA misurata = txTime + tof_vero + errore_ranging_fisico
-    // L'errore è già espresso in metri da UWBChannel → convertiamo in secondi
-    double distTrue  = (myTruePos - senderTruePos).norm();
-    double tof_true  = distTrue / c;
-    double measuredToa = txTimeSec + tof_true + (cond.ranging_error_m / c);
+    // Recuperiamo il vero offset di clock del sender per dedurre il "tempo globale"
+    // (Questo trucco è solo per simulare la fisica in ns-3, il drone non "sa" questo dato)
+    Ptr<Application> app = NodeList::GetNode(senderId)->GetApplication(0);
+    Ptr<UwbSecurityApp> senderApp = DynamicCast<UwbSecurityApp>(app);
+    double senderOffset = senderApp->GetClockOffset();
+    
+    // Il sender ha stampato txTimeSec (che è Locale = Globale + senderOffset)
+    // Il vero tempo globale di partenza era:
+    double trueGlobalTxTime = txTimeSec - senderOffset;
+    
+    double distTrue = (myTruePos - senderTruePos).norm();
+    double tof_true = distTrue / c;
+    
+    // Il pacchetto arriva in questo istante reale:
+    double trueGlobalRxTime = trueGlobalTxTime + tof_true + (cond.ranging_error_m / c);
+    
+    // MA il ricevitore legge il tempo con il SUO orologio locale:
+    double measuredToa = trueGlobalRxTime + m_clockOffset;
 
     // Range misurato da me verso il sender
     double myMeasuredRange = (measuredToa - txTimeSec) * c;
@@ -263,7 +293,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
         // Verifica disponibilità GPS del peer k
         if (!m_lastKnownGps.count(k) || !m_lastKnownTime.count(k)) continue;
 
-        double peerRange  = rangeToSender->second;
+        //double peerRange  = rangeToSender->second;
         // Ricostruiamo una TOA fittizia coerente con il modello EKF:
         // toa_fittizio - tx_timestamp_fittizio = peerRange / c
         // Usiamo tx_timestamp del sender come riferimento comune
@@ -272,15 +302,19 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
         // Poiché bias_k è ignoto, lo escludiamo dal modello (H(i,6)=0)
         // e aumentiamo R per assorbire questa incertezza
 
-        EKF::Msmnt peerData;
-        peerData.anchor_pos   = m_lastKnownGps[k];  // GPS del peer k (non verificato)
-        peerData.tx_timestamp = txTimeSec;           // riferimento temporale comune
-        peerData.toa          = txTimeSec + (peerRange / c); // toa fittizio
-        peerData.is_direct    = false;               // → H(i,6)=0, R aumentato
-        peerData.is_los       = m_networkRangesLos.count(k) ?
-                                (m_networkRangesLos[k].count(senderId) ?
-                                 m_networkRangesLos[k][senderId] : true) : true;
+        Eigen::Vector3d peerGps = m_lastKnownGps[k];
+        double peerAge = currentTime - m_lastKnownTime[k];
+        if (m_lastKnownVelocity.count(k) && peerAge < 1.0)
+        peerGps += m_lastKnownVelocity[k] * peerAge;
 
+        EKF::Msmnt peerData;
+        peerData.anchor_pos    = peerGps;
+        peerData.is_direct     = false;
+        peerData.range         = m_networkRanges[k][senderId]; // range puro in metri
+        peerData.is_los        = m_networkRangesLos.count(k) ?
+                         (m_networkRangesLos[k].count(senderId) ?
+                          m_networkRangesLos[k][senderId] : true) : true;
+        // toa e tx_timestamp non servono più per le misure peer
         inputData.push_back(peerData);
     }
 
@@ -309,17 +343,32 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     //   n=7 → 24.32  (sqrt → ~4.9)
     // -----------------------------------------------------------------------
 
-    double mahal = m_ekfBank[senderId].GetMahalanobisDistance();
+    double mahal  = m_ekfBank[senderId].GetMahalanobisDistance();
     double posStd = m_ekfBank[senderId].GetPositionStdDev();
-
-    // Soglia euclidea adattiva come backup (3-sigma dalla covarianza EKF)
-    double adaptiveThreshold = std::max(5.0, 3.0 * posStd);
     Eigen::Vector3d estimatedPos = m_ekfBank[senderId].GetPosition();
     double euclError = (estimatedPos - claimedGps).norm();
 
-    // Allarme: Mahalanobis alta O errore euclideo > soglia adattiva
-    bool suspiciousNow = (mahal > MAHAL_ALARM_THRESHOLD) ||
+    // -----------------------------------------------------------------------
+    // STRATEGIA DI ALLARME A DUE LIVELLI INDIPENDENTI:
+    //
+    // Livello 1 — Mahalanobis sulla SOLA misura diretta:
+    //   Misura solo quanto la distanza UWB fisica è inconsistente con il GPS
+    //   dichiarato. Non è influenzata dal rumore geometrico dei peer.
+    //   Con 1 misura, Mahalanobis ~ |y| / sqrt(R) ~ |errore| / sigma_ranging
+    //   Soglia = 5.0 → errore > 5 * sigma_ranging (≈ 1.5m in LOS)
+    //
+    // Livello 2 — Errore euclideo adattivo:
+    //   Backup per casi in cui la Mahalanobis è bassa ma la posizione EKF
+    //   diverge chiaramente dal GPS dichiarato.
+    //   Soglia = max(8m, 5*posStd) → molto conservativa per evitare falsi positivi
+    // -----------------------------------------------------------------------
+    double adaptiveThreshold = std::max(8.0, 5.0 * posStd);
+
+    bool suspiciousNow = (mahal  > MAHAL_ALARM_THRESHOLD) ||
                          (euclError > adaptiveThreshold);
+
+    // Freeze iniziale: l'EKF ha bisogno di tempo per convergere
+    if (currentTime < 15.0) suspiciousNow = false;
 
     if (suspiciousNow) {
         m_alarmCounter[senderId]++;
@@ -340,12 +389,14 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
 
     if (m_id == 1 && senderId == 0) {
         std::cout << "t=" << currentTime
+                  << " sender=" << senderId
+                  << " n_peer=" << inputData.size() - 1
                   << " mahal="   << mahal
                   << " ekf_err=" << (estimatedPos - senderTruePos).norm()
                   << " claimed_err=" << (claimedGps - senderTruePos).norm()
-                  << " posStd="  << posStd
+                  //<< " posStd="  << posStd
                   << " alarm="   << m_alarms[senderId]
-                  << " n_msmnt=" << inputData.size()
+                  //<< " n_msmnt=" << inputData.size()
                   << std::endl;
     }
 
@@ -372,6 +423,13 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
     Eigen::Vector3d gps(mobility->GetPosition().x,
                         mobility->GetPosition().y,
                         mobility->GetPosition().z);
+
+    std::normal_distribution<double> noise_xy(0.0, 0.2); // 20cm rumore xy
+    std::normal_distribution<double> noise_z(0.0, 0.4); // 40cm rumore Z
+
+    gps.x() += noise_xy(m_rng);
+    gps.y() += noise_xy(m_rng);
+    gps.z() += noise_z(m_rng);
 
     if (m_isMalicious) {
         const double TARGET_OFFSET = 15.0; // [m] offset massimo

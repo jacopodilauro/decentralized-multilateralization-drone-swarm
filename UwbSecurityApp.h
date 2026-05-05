@@ -7,6 +7,8 @@
 #include "ns3/event-id.h"
 #include "UWBChannel.h"
 #include "EKF.h"
+#include "random"
+
 #include <Eigen/Dense>
 #include <map>
 #include <vector>
@@ -26,10 +28,15 @@ public:
 
     void SetMalicious(bool isMalicious);
     bool IsMalicious() const;
+    
+    double GetClockOffset() const { return m_clockOffset; }
 
 private:
     virtual void StartApplication(void) override;
     virtual void StopApplication(void)  override;
+
+    double m_clockOffset;
+    std::mt19937 m_rng;
 
     void SendUwbMessage();
     void ReceivePacket(Ptr<Socket> socket);
@@ -55,6 +62,7 @@ private:
 
     std::map<uint32_t, Eigen::Vector3d> m_lastKnownGps;
     std::map<uint32_t, double>          m_lastKnownTime;
+    std::map<uint32_t, Eigen::Vector3d> m_lastKnownVelocity;
 
     std::map<uint32_t, std::map<uint32_t, double>> m_networkRanges;
     std::map<uint32_t, std::map<uint32_t, double>> m_networkRangeTimes;
