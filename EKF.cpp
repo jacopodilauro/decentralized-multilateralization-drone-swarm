@@ -133,8 +133,8 @@ void EKF::Update(const vector<Msmnt>& measurements) {
     // Covarianza innovazione
     MatrixXd S = H * m_P * H.transpose() + R;
 
-    MatrixXd K = m_P * H.transpose() * S.ldlt().solve(MatrixXd::Identity(n, n));
-
+    //MatrixXd K = m_P * H.transpose() * S.ldlt().solve(MatrixXd::Identity(n, n));
+    MatrixXd K = S.ldlt().solve(H * m_P).transpose();
     m_state = m_state + K * y;
 
     // Aggiornamento covarianza forma Joseph

@@ -21,7 +21,7 @@ UwbHeader::~UwbHeader () {}
 
 uint32_t UwbHeader::GetSerializedSize (void) const {
     // 4(id) + 8(time) + 24(gps) + 4(bitmask) + 4(n_ranges) + (n_ranges * 8)
-    return 4 + 8 + 24 + 4 + 4 + (m_sharedRanges.size() * 8); 
+    return 4 + 8 + 24 + 4 + 4 + (m_sharedRanges.size() * 4); 
 }
 
 void UwbHeader::Serialize (Buffer::Iterator start) const {
@@ -36,9 +36,20 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     
     start.WriteHtonU32 (m_sharedRanges.size());
     for(double r : m_sharedRanges) {
-        uint64_t range_bytes;
+        
+        if (r < 0.0) {
+            // Se la distanza non c'è (-1.0), inviamo 65535 (0xFFFF) come "vuoto"
+            start.WriteHtonU32(0xFFFFFFFF);
+        } else {
+            // Moltiplico per 100 e converto in intero a 16 bit
+            uint32_t range_mm = static_cast<uint32_t>(r * 1000.0);
+            start.WriteHtonU32(range_mm);
+        }
+        
+        
+        /*uint64_t range_bytes;
         std::memcpy(&range_bytes, &r, 8);
-        start.WriteU64(range_bytes);
+        start.WriteU64(range_bytes);*/
     }
 }
 
@@ -54,8 +65,17 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     m_sharedRanges.resize(n_ranges);
     
     for(uint32_t i = 0; i < n_ranges; i++) {
-        uint64_t range_bytes = start.ReadU64();
-        std::memcpy(&m_sharedRanges[i], &range_bytes, 8);
+        
+        uint32_t range_mm = start.ReadNtohU32();
+        
+        if (range_mm == 0xFFFFFFFF) {
+            m_sharedRanges[i] = -1.0;
+        } else {
+            m_sharedRanges[i] = static_cast<double>(range_mm) / 1000.0; // Riconverto in metri per l'EKF
+        }
+        
+        /*uint64_t range_bytes = start.ReadU64();
+        std::memcpy(&m_sharedRanges[i], &range_bytes, 8);*/
     }
     return GetSerializedSize (); 
 }
