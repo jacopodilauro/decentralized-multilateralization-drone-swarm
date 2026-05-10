@@ -94,6 +94,11 @@ void UwbSecurityApp::StopApplication() {
 // ---------------------------------------------------------------------------
 
 void UwbSecurityApp::SendUwbMessage() {
+    m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
+                                       &UwbSecurityApp::SendUwbMessage, this);
+
+    if (!m_isActive) return;
+    
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
     double currentSimTime = Simulator::Now().GetSeconds();
     double localTime = currentSimTime + m_clockOffset;
@@ -110,9 +115,9 @@ void UwbSecurityApp::SendUwbMessage() {
     Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
     m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
-
-    m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
-                                       &UwbSecurityApp::SendUwbMessage, this);
+    //Eigen::Vector3d myGps = GetCurrentGpsPosition();
+    //m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
+    //                                   &UwbSecurityApp::SendUwbMessage, this);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +127,13 @@ void UwbSecurityApp::SendUwbMessage() {
 void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
     Ptr<Packet> packet;
     Address from;
+
+    if (!m_isActive) {
+        // Se inattivo, svuota il buffer di rete e ignora i pacchetti
+        while ((packet = socket->RecvFrom(from))) {}
+        return;
+    }
+    // Se arrivi qui, il nodo è attivo. Inizia il tuo codice originale:
     while ((packet = socket->RecvFrom(from))) {
         UwbHeader header;
         packet->RemoveHeader(header);
@@ -450,4 +462,32 @@ uint32_t UwbSecurityApp::GetVoteBitmask() {
     for (auto const& pair : m_alarms)
         if (pair.second) mask &= ~(1u << pair.first);
     return mask;
+}
+
+void UwbSecurityApp::SetActive(bool active) {
+    m_isActive = active;
+}
+
+void UwbSecurityApp::AddPeer(uint32_t peerId) {
+    // Quando entra un nuovo drone, ci assicuriamo che non ci siano vecchi dati in memoria
+    m_lastKnownGps.erase(peerId);
+    m_lastKnownTime.erase(peerId);
+    m_lastKnownVelocity.erase(peerId);
+    m_ekfBank.erase(peerId);
+    m_alarms[peerId] = false;
+    m_alarmCounter[peerId] = 0;
+    m_okCounter[peerId] = 0;
+}
+
+void UwbSecurityApp::RemovePeer(uint32_t peerId) {
+    // Quando un drone esce, cancelliamo il suo EKF e la sua cache
+    // per non creare "falsi allarmi" o tenere "fantasmi" nello sciame
+    m_lastKnownGps.erase(peerId);
+    m_lastKnownTime.erase(peerId);
+    m_lastKnownVelocity.erase(peerId);
+    m_ekfBank.erase(peerId);
+    m_alarms.erase(peerId);
+    m_networkRanges.erase(peerId);
+    m_networkRangeTimes.erase(peerId);
+    m_networkRangesLos.erase(peerId);
 }

@@ -20,6 +20,10 @@ class UwbSecurityApp : public Application {
 public:
     static TypeId GetTypeId(void);
 
+    void SetActive(bool active);
+    void AddPeer(uint32_t peerId);
+    void RemovePeer(uint32_t peerId);
+
     UwbSecurityApp();
     virtual ~UwbSecurityApp();
 
@@ -32,6 +36,8 @@ public:
     double GetClockOffset() const { return m_clockOffset; }
 
 private:
+    bool m_isActive = true;
+
     virtual void StartApplication(void) override;
     virtual void StopApplication(void)  override;
 
