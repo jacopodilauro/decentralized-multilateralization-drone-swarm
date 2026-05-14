@@ -24,7 +24,7 @@ namespace {
     }
 
     // -----------------------------------------------------------------------
-    // Smoothstep C2 di Ken Perlin
+    // Ken Perlin
     // -----------------------------------------------------------------------
     double Smoothstep(double x) {
         x = std::max(0.0, std::min(1.0, x));
@@ -32,7 +32,7 @@ namespace {
     }
 
     // ==========================================
-    // TRAIETTORIE BASE (invariate)
+    // TRAIETTORIE BASE
     // ==========================================
 
     TrajectoryFunc MakeOctahedronFormation(int id, double speed) {

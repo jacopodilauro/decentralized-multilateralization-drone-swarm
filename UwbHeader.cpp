@@ -14,13 +14,11 @@ TypeId UwbHeader::GetTypeId (void) {
 TypeId UwbHeader::GetInstanceTypeId (void) const { return GetTypeId (); }
 
 UwbHeader::UwbHeader () : m_senderId(0), m_txTimestampPs(0), m_gpsX(0), m_gpsY(0), m_gpsZ(0), m_voteBitmask(0xFFFFFFFF) {
-    //for(int i=0; i<6; i++) m_sharedRanges[i] = -1.0;
     m_sharedRanges.clear();
 }
 UwbHeader::~UwbHeader () {}
 
 uint32_t UwbHeader::GetSerializedSize (void) const {
-    // 4(id) + 8(time) + 24(gps) + 4(bitmask) + 4(n_ranges) + (n_ranges * 8)
     return 4 + 8 + 24 + 4 + 4 + (m_sharedRanges.size() * 4); 
 }
 
@@ -38,10 +36,8 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     for(double r : m_sharedRanges) {
         
         if (r < 0.0) {
-            // Se la distanza non c'è (-1.0), inviamo 65535 (0xFFFF) come "vuoto"
             start.WriteHtonU32(0xFFFFFFFF);
         } else {
-            // Moltiplico per 100 e converto in intero a 16 bit
             uint32_t range_mm = static_cast<uint32_t>(r * 1000.0);
             start.WriteHtonU32(range_mm);
         }

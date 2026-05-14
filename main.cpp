@@ -12,7 +12,7 @@
 #include "Trajectories.h"
 #include "UWBChannel.h"
 #include "SimulationLogger.h"
-#include "SwarmManager.h"      // NUOVO
+#include "SwarmManager.h"      
 
 using namespace ns3;
 
@@ -23,15 +23,11 @@ static void PrintProgress(double interval, double totalTime) {
     std::cout << ">>> [Progresso] Simulazione a t = " << now 
               << " s (su " << totalTime << " s)..." << std::endl;
               
-    // Si auto-schedula per il prossimo step
     Simulator::Schedule(Seconds(interval), &PrintProgress, interval, totalTime);
 }
 
 int main(int argc, char *argv[])
 {
-    // -----------------------------------------------------------------------
-    // Parametri base (invariati)
-    // -----------------------------------------------------------------------
     uint32_t setnDrones  = 8;
     double   setSimTime  = 240.0;
     double   attackTime  = 200.0;
@@ -42,11 +38,6 @@ int main(int argc, char *argv[])
     std::string targetsId   = "0";
     std::string csvFileName = "tdma_security_log.csv";
 
-    // -----------------------------------------------------------------------
-    // Nuovi parametri dinamici
-    //   --join="10:0,50:0"    tempo:ignored  (ID assegnato dal pool)
-    //   --leave="80:2,120:1"  tempo:droneId
-    // -----------------------------------------------------------------------
     std::string joinStr  = "";
     std::string leaveStr = "";
 
@@ -65,10 +56,6 @@ int main(int argc, char *argv[])
 
     std::cout << "--- Start Simulation Distry MLAT-26 (Dynamic Swarm) ---" << std::endl;
 
-    // -----------------------------------------------------------------------
-    // SwarmManager: parsing eventi e calcolo slot totali
-    // -----------------------------------------------------------------------
-    // Prima pass per contare i join (serve sapere quanti slot pre-allocare)
     SwarmManager tmpMgr;
     tmpMgr.ParseJoin(joinStr);
     tmpMgr.ParseLeave(leaveStr);
@@ -80,12 +67,9 @@ int main(int argc, char *argv[])
     mgr.ParseLeave(leaveStr);
     mgr.PrintEvents();
 
-    uint32_t totalNodes = mgr.GetTotalSlots();  // base + ospiti
+    uint32_t totalNodes = mgr.GetTotalSlots(); 
     std::cout << "Nodi totali pre-allocati: " << totalNodes << std::endl;
 
-    // -----------------------------------------------------------------------
-    // CSV
-    // -----------------------------------------------------------------------
     std::ofstream csvFile(csvFileName);
     if (csvFile.is_open()) {
         csvFile << "time,sender_id,observer_id,est_x,est_y,est_z,"
@@ -94,19 +78,12 @@ int main(int argc, char *argv[])
                    "rec_x,rec_y,rec_z\n";
     }
 
-    // -----------------------------------------------------------------------
-    // Canale UWB
-    // -----------------------------------------------------------------------
     Ptr<UWBChannel> channel = CreateObject<UWBChannel>();
     channel->SetEnvironment("outdoor");
 
-    // -----------------------------------------------------------------------
-    // Nodi ns-3: pre-allochiamo base + ospiti
-    // -----------------------------------------------------------------------
     NodeContainer swarmNodes;
     swarmNodes.Create(totalNodes);
 
-    // --- Rete Wi-Fi Ad-Hoc ---
     WifiHelper wifi;
     wifi.SetStandard(WIFI_STANDARD_80211g);
     YansWifiPhyHelper wifiPhy;
@@ -124,26 +101,22 @@ int main(int argc, char *argv[])
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     ipv4.Assign(devices);
 
-    // --- Mobilità ---
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::WaypointMobilityModel");
     mobility.Install(swarmNodes);
 
-    // 1. Traiettorie droni base (0..setnDrones-1)
     for (uint32_t i = 0; i < setnDrones; ++i) {
         AssignTrajectoryToNode(swarmNodes.Get(i), i, setnDrones,
                                setSimTime, setSpeed, 0.5, setScenary);
     }
 
-    // 2. Traiettorie droni ospiti (PRE-CALCOLATE A t=0 PER EVITARE DEADLOCK)
     const std::vector<SwarmEvent>& allEvents = mgr.GetEvents();
 
-    uint32_t tempGuestId = setnDrones; // Il primo ospite è l'ID 8
+    uint32_t tempGuestId = setnDrones;
     for (auto& e : allEvents) {
         if (e.type == SwarmEvent::JOIN) {
             double jt = e.time;
 
-            // Cerca se l'utente ha scritto un LEAVE per questo specifico ID (es. 8)
             double lt = -1.0;
             for (auto& le : allEvents) {
                 if (le.type == SwarmEvent::LEAVE && le.droneId == tempGuestId) {
@@ -158,12 +131,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Applicazioni
-    // -----------------------------------------------------------------------
     std::vector<Ptr<UwbSecurityApp>> apps(totalNodes, nullptr);
 
-    // Droni base: attivi da subito
     for (uint32_t i = 0; i < setnDrones; ++i) {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
         app->Setup(i, totalNodes, setSlot, channel, &csvFile);
@@ -174,10 +143,9 @@ int main(int argc, char *argv[])
         apps[i] = app;
     }
 
-    // Droni ospiti: silenziati (in letargo) finché non entrano
     for (uint32_t i = setnDrones; i < totalNodes; ++i) {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
-        app->Setup(i, totalNodes, setSlot, channel, &csvFile); // Setup inserito!
+        app->Setup(i, totalNodes, setSlot, channel, &csvFile);
         swarmNodes.Get(i)->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
         app->SetStopTime(Seconds(setSimTime));
@@ -185,18 +153,14 @@ int main(int argc, char *argv[])
         apps[i] = app;
     }
 
-// -----------------------------------------------------------------------
-    // Schedulazione eventi JOIN / LEAVE
-    // -----------------------------------------------------------------------
-    uint32_t expectedGuestId = setnDrones; // Il primo ospite sarà l'ID 8
+    uint32_t expectedGuestId = setnDrones;
 
     for (auto& e : allEvents) {
         if (e.type != SwarmEvent::JOIN) continue;
 
         double jt = e.time;
-        uint32_t targetId = expectedGuestId++; // L'ID che sappiamo prenderà questo drone
+        uint32_t targetId = expectedGuestId++;
 
-        // Cerca se c'è un LEAVE esplicito per questo ID
         double lt = -1.0;
         for (auto& le : allEvents) {
             if (le.type == SwarmEvent::LEAVE && le.droneId == targetId) {
@@ -211,7 +175,7 @@ int main(int argc, char *argv[])
             Seconds(approach_time),
             [&mgr, &apps, jt, lt, approach_time, targetId]() mutable
             {
-                uint32_t newId = mgr.AssignId(); // Coinciderà esattamente con targetId
+                uint32_t newId = mgr.AssignId();
                 if (newId == UINT32_MAX) return;
 
                 std::cout << ">>> APPROACH: drone ID=" << newId
@@ -265,9 +229,6 @@ int main(int argc, char *argv[])
             });
     }
 
-    // -----------------------------------------------------------------------
-    // Schedulazione LEAVE per i droni BASE (Simulazione Guasto/Abbandono)
-    // -----------------------------------------------------------------------
     for (auto& e : allEvents) {
         if (e.type == SwarmEvent::LEAVE && e.droneId < setnDrones) {
             uint32_t baseId = e.droneId;
@@ -278,25 +239,16 @@ int main(int argc, char *argv[])
                           << " ha un'avaria radio e scompare dalla rete a t=" << lt << "s"
                           << std::endl;
                 
-                // Spegne la scheda di rete UWB
                 if (apps[baseId]) apps[baseId]->SetActive(false);
 
-                // Notifica gli altri droni di cancellare la sua cache EKF
-                // per non usare dati vecchi e sballare le stime
                 for (uint32_t id : mgr.GetActiveIds()) {
                     if (id == baseId) continue;
                     if (apps[id]) apps[id]->RemovePeer(baseId);
                 }
-                
-                // NOTA: Non rilasciamo l'ID nel pool, perché gli ID base 
-                // non devono essere riassegnati ai droni ospiti esterni!
             });
         }
     }
     
-    // -----------------------------------------------------------------------
-    // Attacco spoofing (invariato)
-    // -----------------------------------------------------------------------
     Simulator::Schedule(Seconds(attackTime), [&apps, targetsId, totalNodes]() {
         std::vector<uint32_t> maliciousIds;
         std::stringstream ss(targetsId);
@@ -317,12 +269,8 @@ int main(int argc, char *argv[])
         }
     });
 
-    // -----------------------------------------------------------------------
-    // Avvio simulatore
-    // -----------------------------------------------------------------------
     std::cout << ">>> Configurazione completata. Avvio ns-3..." << std::endl;
     
-    // Log di progresso ogni 20 secondi (così capisci subito che lavora!)
     Simulator::Schedule(Seconds(20.0), &PrintProgress, 20.0, setSimTime);
 
     Simulator::Stop(Seconds(setSimTime + 1.0));

@@ -43,9 +43,6 @@ private:
     double m_gpsZ;
     uint32_t m_voteBitmask;
     
-    // Visto che voglio avere distanze dinamiche uso un vector, 
-    //  temo sia meno efficente va verifichiamo.
-    // double m_sharedRanges[6]; 
     std::vector<double> m_sharedRanges;
 };
 

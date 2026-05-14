@@ -6,10 +6,6 @@
 
 class SimulationLogger {
 public:
-    /**
-     * @brief Scrive una singola riga di log nel file CSV con il formato esatto 
-     * richiesto dagli script Python di analisi.
-     */
     static void LogObservation(
         double time, 
         int sender_id, 

@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <fstream>
+#include <set>
 
 using namespace ns3;
 
@@ -79,6 +80,7 @@ private:
 
     std::map<uint32_t, bool> m_alarms;
     std::map<uint32_t, int>  m_alarmCounter;
+    std::map<uint32_t, std::set<uint32_t>> m_peerVotes;
     std::map<uint32_t, int>  m_okCounter;
 };
 
