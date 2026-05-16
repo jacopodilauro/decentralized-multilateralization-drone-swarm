@@ -100,8 +100,8 @@ void EKF::Update(const vector<Msmnt>& measurements) {
     MatrixXd I_KH = MatrixXd::Identity(7, 7) - K * H;
     m_P = I_KH * m_P * I_KH.transpose() + K * R * K.transpose();
 
-    m_last_y = y.head(1);
-    m_last_S = S.block<1,1>(0,0);
+    m_last_y = y;
+    m_last_S = S;
 }
 
 double EKF::GetMahalanobisDistance() const {

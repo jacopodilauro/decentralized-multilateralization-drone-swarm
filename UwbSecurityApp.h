@@ -57,6 +57,7 @@ private:
     void ReorganizeSlots(uint32_t leavingDroneId);
 
     Eigen::Vector3d GetCurrentGpsPosition();
+    Eigen::Vector3d m_myGpsThisSlot;
     uint32_t        GetVoteBitmask();
 
     uint32_t        m_id;
