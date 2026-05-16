@@ -24,7 +24,8 @@ public:
     void SetTxTimestampPs (uint64_t timestamp_ps);
     void SetGpsPosition (double x, double y, double z);
     void SetVoteBitmask (uint32_t mask);
-    
+    void SetImLeaving (bool leaving);
+
     void SetSharedRange(uint32_t targetId, double range);
     double GetSharedRange(uint32_t targetId) const;
 
@@ -34,6 +35,7 @@ public:
     double GetGpsY () const;
     double GetGpsZ () const;
     uint32_t GetVoteBitmask () const;
+    bool GetImLeaving () const;
 
 private:
     uint32_t m_senderId;
@@ -42,7 +44,8 @@ private:
     double m_gpsY;
     double m_gpsZ;
     uint32_t m_voteBitmask;
-    
+    bool m_imLeaving;
+
     std::vector<double> m_sharedRanges;
 };
 

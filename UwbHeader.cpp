@@ -1,7 +1,7 @@
 #include "UwbHeader.h"
 #include "ns3/log.h"
 #include <cstring>
-
+ 
 namespace ns3 {
  
 NS_LOG_COMPONENT_DEFINE ("UwbHeader");
@@ -13,13 +13,13 @@ TypeId UwbHeader::GetTypeId (void) {
 }
 TypeId UwbHeader::GetInstanceTypeId (void) const { return GetTypeId (); }
 
-UwbHeader::UwbHeader () : m_senderId(0), m_txTimestampPs(0), m_gpsX(0), m_gpsY(0), m_gpsZ(0), m_voteBitmask(0xFFFFFFFF) {
+UwbHeader::UwbHeader () : m_senderId(0), m_txTimestampPs(0), m_gpsX(0), m_gpsY(0), m_gpsZ(0), m_voteBitmask(0xFFFFFFFF), m_imLeaving(false) {
     m_sharedRanges.clear();
 }
 UwbHeader::~UwbHeader () {}
 
 uint32_t UwbHeader::GetSerializedSize (void) const {
-    return 4 + 8 + 24 + 4 + 4 + (m_sharedRanges.size() * 4); 
+    return 4 + 8 + 24 + 4 + 1 + 4 + (m_sharedRanges.size() * 4); 
 }
 
 void UwbHeader::Serialize (Buffer::Iterator start) const {
@@ -31,6 +31,7 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     start.WriteU64 (x_bytes); start.WriteU64 (y_bytes); start.WriteU64 (z_bytes);
     
     start.WriteHtonU32 (m_voteBitmask);
+    start.WriteU8 (m_imLeaving ? 1 : 0);
     
     start.WriteHtonU32 (m_sharedRanges.size());
     for(double r : m_sharedRanges) {
@@ -56,6 +57,7 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     uint64_t x_bytes = start.ReadU64 (), y_bytes = start.ReadU64 (), z_bytes = start.ReadU64 ();
     std::memcpy(&m_gpsX, &x_bytes, 8); std::memcpy(&m_gpsY, &y_bytes, 8); std::memcpy(&m_gpsZ, &z_bytes, 8);
     m_voteBitmask = start.ReadNtohU32 ();
+    m_imLeaving   = (start.ReadU8 () != 0);
     
     uint32_t n_ranges = start.ReadNtohU32();
     m_sharedRanges.resize(n_ranges);
@@ -81,6 +83,7 @@ void UwbHeader::SetSenderId (uint32_t id) { m_senderId = id; }
 void UwbHeader::SetTxTimestampPs (uint64_t timestamp_ps) { m_txTimestampPs = timestamp_ps; }
 void UwbHeader::SetGpsPosition (double x, double y, double z) { m_gpsX = x; m_gpsY = y; m_gpsZ = z; }
 void UwbHeader::SetVoteBitmask (uint32_t mask) { m_voteBitmask = mask; }
+void UwbHeader::SetImLeaving (bool leaving) { m_imLeaving = leaving; }
 void UwbHeader::SetSharedRange(uint32_t targetId, double range) 
 {
     if (targetId >= m_sharedRanges.size()) {
@@ -95,6 +98,7 @@ double UwbHeader::GetGpsX () const { return m_gpsX; }
 double UwbHeader::GetGpsY () const { return m_gpsY; }
 double UwbHeader::GetGpsZ () const { return m_gpsZ; }
 uint32_t UwbHeader::GetVoteBitmask () const { return m_voteBitmask; }
+bool     UwbHeader::GetImLeaving ()   const { return m_imLeaving; }
 double UwbHeader::GetSharedRange(uint32_t targetId) const 
 { 
     if (targetId < m_sharedRanges.size()) {
@@ -103,4 +107,4 @@ double UwbHeader::GetSharedRange(uint32_t targetId) const
     return -1.0;    
 }
 
-} 
+}

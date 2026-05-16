@@ -48,6 +48,7 @@ UwbSecurityApp::~UwbSecurityApp() { m_socket = 0; }
 void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
                             Ptr<UWBChannel> channel, std::ofstream* csv) {
     m_id          = id;
+    m_slotId      = id;
     m_swarmSize   = swarmSize;
     m_channel     = channel;
     m_csv         = csv;
@@ -55,7 +56,7 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
 
-    m_rng.seed(m_id + 12345); 
+    m_rng.seed(m_id + 12345);
     std::uniform_real_distribution<double> dist_offset(-1e-9, 1e-9);
     m_clockOffset = dist_offset(m_rng);
 }
@@ -104,13 +105,29 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
     header.SetVoteBitmask(GetVoteBitmask());
+    header.SetImLeaving(m_imLeaving);
 
-    for (uint32_t i = 0; i < m_swarmSize; ++i)
-        header.SetSharedRange(i, m_myLastRanges[i]);
+    for (const auto& pair : m_slotMap) {
+        uint32_t targetId = pair.first;
+        if (targetId < m_myLastRanges.size()) {
+            header.SetSharedRange(targetId, m_myLastRanges[targetId]);
+        }
+    }
 
     Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
     m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
+
+    // Se avevamo schedulato un leave, questo era il messaggio di goodbye:
+    // ora ci disattiviamo definitivamente.
+    if (m_pendingLeave) {
+        std::cout << ">>> GOODBYE TX: drone ID=" << m_id
+                  << " ha inviato il messaggio di leave a t="
+                  << currentSimTime << "s — radio off." << std::endl;
+        m_isActive    = false;
+        m_imLeaving   = false;
+        m_pendingLeave = false;
+    }
     //Eigen::Vector3d myGps = GetCurrentGpsPosition();
     //m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
     //                                   &UwbSecurityApp::SendUwbMessage, this);
@@ -130,16 +147,35 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         uint32_t senderId = header.GetSenderId();
         if (senderId == m_id) continue;
+
+        // --- Gestione messaggio di LEAVE ---
+        if (header.GetImLeaving()) {
+            std::cout << ">>> GOODBYE RX: drone ID=" << m_id
+                      << " ha ricevuto il messaggio di leave da drone ID=" << senderId
+                      << " a t=" << Simulator::Now().GetSeconds() << "s" << std::endl;
+            RemovePeer(senderId);
+            // --- Gestione messaggio di LEAVE ---
+        if (header.GetImLeaving()) {
+            std::cout << ">>> GOODBYE RX: drone ID=" << m_id
+                      << " ha ricevuto il messaggio di leave da drone ID=" << senderId
+                      << " a t=" << Simulator::Now().GetSeconds() << "s" << std::endl;
+            RemovePeer(senderId);
+            ReorganizeSlots(senderId); // <--- AGGIUNGI QUESTA RIGA
+            continue;
+        }
+            continue;
+        }
         
         uint32_t receivedMask = header.GetVoteBitmask();
-        for (uint32_t j = 0; j < m_swarmSize; ++j) {
-            bool senderSuspectsJ = !((receivedMask >> j) & 1u); 
-            if (senderSuspectsJ) {
-                m_peerVotes[j].insert(senderId);  
+        for (const auto& pair : m_slotMap) {
+            uint32_t targetId = pair.first;
+            bool senderSuspectsTarget = !((receivedMask >> targetId) & 1u); 
+            if (senderSuspectsTarget) {
+                m_peerVotes[targetId].insert(senderId);  
             } else {
-                m_peerVotes[j].erase(senderId);    
+                m_peerVotes[targetId].erase(senderId);    
             }
-        }   
+        }  
 
         double txTimeSec = header.GetTxTimestampPs() / 1e12;
         Eigen::Vector3d claimedGps(header.GetGpsX(), header.GetGpsY(), header.GetGpsZ());
@@ -267,7 +303,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     Eigen::Vector3d estimatedPos = m_ekfBank[senderId].GetPosition();
     double euclError = (estimatedPos - claimedGps).norm();
 
-    double adaptiveThreshold = std::max(8.0, 5.0 * posStd);
+    double adaptiveThreshold = std::max(6.0, 3.5 * posStd);
 
     bool suspiciousNow = (mahal  > MAHAL_ALARM_THRESHOLD) ||
                          (euclError > adaptiveThreshold);
@@ -352,6 +388,19 @@ void UwbSecurityApp::SetActive(bool active) {
     m_isActive = active;
 }
 
+// ---------------------------------------------------------------------------
+// ScheduleLeave — il drone aspetta il suo prossimo slot TDMA naturale,
+// invia un messaggio con m_imLeaving=true, poi si disattiva da solo.
+// ---------------------------------------------------------------------------
+void UwbSecurityApp::ScheduleLeave() {
+    if (m_pendingLeave) return;   // chiamata doppia, ignora
+    m_pendingLeave = true;
+    m_imLeaving    = true;
+    std::cout << ">>> LEAVE SCHEDULATO: drone ID=" << m_id
+              << " invierà goodbye al prossimo slot TDMA (t="
+              << Simulator::Now().GetSeconds() << "s)" << std::endl;
+}
+
 void UwbSecurityApp::AddPeer(uint32_t peerId) {
     m_lastKnownGps.erase(peerId);
     m_lastKnownTime.erase(peerId);
@@ -372,7 +421,53 @@ void UwbSecurityApp::RemovePeer(uint32_t peerId) {
     m_networkRangeTimes.erase(peerId);
     m_networkRangesLos.erase(peerId);
 
-    m_peerVotes.erase(peerId);            
+    m_peerVotes.erase(peerId);
     for (auto& [id, voters] : m_peerVotes)
-        voters.erase(peerId);        
+        voters.erase(peerId);
+}
+
+void UwbSecurityApp::InitSlotMap(const std::vector<uint32_t>& activeIds) {
+    m_slotMap.clear();
+    uint32_t slot = 0;
+    for (uint32_t droneId : activeIds) {
+        m_slotMap[droneId] = slot++;
+    }
+    if (m_slotMap.count(m_id))
+        m_slotId = m_slotMap[m_id];
+    m_swarmSize = (uint32_t)m_slotMap.size();
+}
+
+void UwbSecurityApp::AddPeerSlot(uint32_t peerId, uint32_t slotId) {
+    m_slotMap[peerId] = slotId;
+    m_swarmSize = (uint32_t)m_slotMap.size();
+}
+
+void UwbSecurityApp::ReorganizeSlots(uint32_t leavingDroneId) {
+    if (m_slotMap.find(leavingDroneId) == m_slotMap.end()) {
+        return; 
+    }
+
+    uint32_t emptySlot = m_slotMap[leavingDroneId];
+    
+    uint32_t maxSlot = 0;
+    uint32_t lastDroneId = leavingDroneId; 
+    
+    for (const auto& pair : m_slotMap) {
+        if (pair.second > maxSlot) {
+            maxSlot = pair.second;
+            lastDroneId = pair.first;
+        }
+    }
+
+    m_slotMap.erase(leavingDroneId);
+
+    if (lastDroneId != leavingDroneId) {
+        m_slotMap[lastDroneId] = emptySlot;
+    }
+
+    if (m_slotMap.count(m_id)) {
+        m_slotId = m_slotMap[m_id];
+    }
+    
+    m_swarmSize = (uint32_t)m_slotMap.size();
 }

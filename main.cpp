@@ -143,6 +143,14 @@ int main(int argc, char *argv[])
         apps[i] = app;
     }
 
+    // Inizializza la slotMap su tutti i droni base con la lista ordinata degli ID attivi
+    {
+        std::vector<uint32_t> baseIds;
+        for (uint32_t i = 0; i < setnDrones; ++i) baseIds.push_back(i);
+        for (uint32_t i = 0; i < setnDrones; ++i)
+            apps[i]->InitSlotMap(baseIds);
+    }
+
     for (uint32_t i = setnDrones; i < totalNodes; ++i) {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
         app->Setup(i, totalNodes, setSlot, channel, &csvFile);
@@ -169,60 +177,55 @@ int main(int argc, char *argv[])
             }
         }
         
-        double approach_time = std::max(0.0, jt - 15.0);
+        //double approach_time = std::max(0.0, jt - 15.0);
 
+        // Scheduliamo l'accensione e l'inserimento ESATTAMENTE al tempo di join (jt)
         Simulator::Schedule(
-            Seconds(approach_time),
-            [&mgr, &apps, jt, lt, approach_time, targetId]() mutable
+            Seconds(jt),
+            [&mgr, &apps, jt, lt, targetId]() mutable
             {
                 uint32_t newId = mgr.AssignId();
                 if (newId == UINT32_MAX) return;
 
-                std::cout << ">>> APPROACH: drone ID=" << newId
-                          << " accende la radio e inizia avvicinamento a t=" << approach_time << "s"
+                std::cout << ">>> JOIN: drone ID=" << newId
+                          << " si inserisce nell'orbita e accende la radio a t=" << jt << "s"
                           << std::endl;
 
+                // 1. Accendiamo la radio!
                 apps[newId]->SetActive(true);
 
+                // 2. Aggiungiamo i collegamenti peer
                 for (uint32_t id : mgr.GetActiveIds()) {
                     if (id == newId) continue;
                     if (apps[id]) apps[id]->AddPeer(newId);
                 }
 
-                if (jt > approach_time) {
-                    Simulator::Schedule(Seconds(jt - approach_time), [newId, jt]() {
-                        std::cout << ">>> JOIN: drone ID=" << newId
-                                  << " entra fisicamente nell'orbita a t=" << jt << "s"
-                                  << std::endl;
-                    });
+                // 3. Aggiorniamo le mappe degli slot TDMA
+                {
+                    const std::vector<uint32_t>& activeIds = mgr.GetActiveIds();
+                    apps[newId]->InitSlotMap(activeIds);
+                    uint32_t newSlot = (uint32_t)activeIds.size() - 1;
+                    for (uint32_t id : activeIds) {
+                        if (id == newId) continue;
+                        if (apps[id]) apps[id]->AddPeerSlot(newId, newSlot);
+                    }
                 }
 
+                // 4. Gestione dell'uscita (LEAVE) senza attese inutili
                 if (lt > 0) {
                     uint32_t capturedId = newId; 
-                    double leave_delay = std::max(0.0, lt - approach_time);
+                    double leave_delay = std::max(0.0, lt - jt); 
+                    
+                    // Al tempo lt, il drone inizia ad allontanarsi fisicamente
+                    // E avvisa l'applicazione di prepararsi a inviare il goodbye al prossimo slot utile
                     Simulator::Schedule(
                         Seconds(leave_delay),
-                        [capturedId, lt]() {
+                        [&mgr, &apps, capturedId, lt]() {
                             std::cout << ">>> LEAVE: drone ID=" << capturedId
-                                      << " si sgancia dall'orbita a t=" << lt << "s"
-                                      << std::endl;
-                        });
-
-                    double turn_off_time = lt + 15.0;
-                    double turn_off_delay = std::max(0.0, turn_off_time - approach_time);
-                    
-                    Simulator::Schedule(
-                        Seconds(turn_off_delay),
-                        [&mgr, &apps, capturedId, turn_off_time]() {
-                            std::cout << ">>> SILENZIO RADIO: drone ID=" << capturedId
-                                      << " spegne la radio a t=" << turn_off_time << "s"
+                                      << " inizia l'allontanamento fisico e richiede il distacco TDMA a t=" << lt << "s"
                                       << std::endl;
                             
-                            apps[capturedId]->SetActive(false);
-                            for (uint32_t id : mgr.GetActiveIds()) {
-                                if (id == capturedId) continue;
-                                if (apps[id]) apps[id]->RemovePeer(capturedId);
-                            }
+                            if (apps[capturedId]) apps[capturedId]->ScheduleLeave();
                             mgr.ReleaseId(capturedId);
                         });
                 }
@@ -236,15 +239,10 @@ int main(int argc, char *argv[])
             
             Simulator::Schedule(Seconds(lt), [&mgr, &apps, baseId, lt]() {
                 std::cout << ">>> GUASTO: drone BASE ID=" << baseId
-                          << " ha un'avaria radio e scompare dalla rete a t=" << lt << "s"
-                          << std::endl;
+                          << " ha un'avaria radio a t=" << lt << "s"
+                          << " — invia goodbye al prossimo slot TDMA." << std::endl;
                 
-                if (apps[baseId]) apps[baseId]->SetActive(false);
-
-                for (uint32_t id : mgr.GetActiveIds()) {
-                    if (id == baseId) continue;
-                    if (apps[id]) apps[id]->RemovePeer(baseId);
-                }
+                if (apps[baseId]) apps[baseId]->ScheduleLeave();
             });
         }
     }

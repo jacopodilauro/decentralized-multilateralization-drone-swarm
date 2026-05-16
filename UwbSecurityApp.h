@@ -6,6 +6,7 @@
 #include "ns3/mobility-model.h"
 #include "ns3/event-id.h"
 #include "UWBChannel.h"
+#include "UwbHeader.h"
 #include "EKF.h"
 #include "random"
 
@@ -22,8 +23,11 @@ public:
     static TypeId GetTypeId(void);
 
     void SetActive(bool active);
+    void ScheduleLeave();
     void AddPeer(uint32_t peerId);
+    void AddPeerSlot(uint32_t peerId, uint32_t slotId);
     void RemovePeer(uint32_t peerId);
+    void InitSlotMap(const std::vector<uint32_t>& activeIds);
 
     UwbSecurityApp();
     virtual ~UwbSecurityApp();
@@ -37,7 +41,9 @@ public:
     double GetClockOffset() const { return m_clockOffset; }
 
 private:
-    bool m_isActive = true;
+    bool m_isActive   = true;
+    bool m_imLeaving  = false;   // flag "sto per andarmene", incluso nel prossimo TX
+    bool m_pendingLeave = false; // leave schedulato, in attesa del prossimo slot TX
 
     virtual void StartApplication(void) override;
     virtual void StopApplication(void)  override;
@@ -48,11 +54,13 @@ private:
     void SendUwbMessage();
     void ReceivePacket(Ptr<Socket> socket);
     void ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec);
+    void ReorganizeSlots(uint32_t leavingDroneId);
 
     Eigen::Vector3d GetCurrentGpsPosition();
     uint32_t        GetVoteBitmask();
 
     uint32_t        m_id;
+    uint32_t        m_slotId;
     uint32_t        m_swarmSize;
     bool            m_isMalicious;
     double          m_attackStartTime;
@@ -60,6 +68,8 @@ private:
     uint16_t        m_port;
     Ptr<UWBChannel> m_channel;
     std::ofstream*  m_csv;
+
+    std::map<uint32_t, uint32_t> m_slotMap;
 
     Ptr<Socket> m_socket;
     EventId     m_sendEvent;

@@ -1,0 +1,8 @@
+TO DO
+
+UwbHeader — aggiungere un flag m_isLeaving (1 bit nel bitmask esistente o campo dedicato) serializzato nel pacchetto
+UwbSecurityApp — aggiungere metodo ScheduleLeave(double t_leave) che al momento giusto aspetta il prossimo slot TDMA naturale del drone e invia un messaggio con flag leaving, poi si disattiva
+main.cpp — sostituire la logica di leave diretta con ScheduleLeave() invece di SetActive(false) diretto
+ReceivePacket — quando si riceve un messaggio con flag leaving, loggarlo e rimuovere il peer
+_________________________________________________________________________________________
+DONE
