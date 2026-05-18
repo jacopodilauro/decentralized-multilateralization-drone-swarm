@@ -12,18 +12,21 @@ NS_LOG_COMPONENT_DEFINE ("UwbSecurityApp");
 NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 
 // ---------------------------------------------------------------------------
-// Soglia Mahalanobis adattiva al numero di misure n.
-// La distanza di Mahalanobis multivariata segue una distribuzione chi con
-// n gradi di libertà. Usiamo: soglia = sqrt(n) * 3.5
-// Esempio: n=1 → 3.5,  n=4 → 7.0,  n=8 → 9.9
-// La soglia scalare fissa precedente (5.0) era calibrata per 1 gdl ed era
-// cieca alle misure 2..n. Ora viene calcolata in ProcessRanging.
+// Soglia Mahalanobis per allarme spoofing.
+//
+// La distanza di Mahalanobis segue (approssimativamente) una distribuzione
+// chi con n gradi di libertà. Per n=4 misure, chi(4, 99.9%) ≈ 4.64.
+// Usiamo una soglia conservativa per ridurre i falsi positivi.
 // ---------------------------------------------------------------------------
-static constexpr double MAHAL_OK_THRESHOLD = 3.0;
-
+// Soglia Mahalanobis calcolata SOLO sulla misura diretta (1 grado di libertà).
+// Con 1 misura: Mahal = |y_direct| / sqrt(S_direct)
+// In assenza di attacco vale circa 1.0 (rumore normale).
+// Soglia = 5.0 → errore ranging > 5 sigma (probabilità < 0.00006%)
+static constexpr double MAHAL_ALARM_THRESHOLD = 5.0;
+static constexpr double MAHAL_OK_THRESHOLD    = 3.0;
 // Campioni consecutivi necessari per alzare/abbassare l'allarme.
 // Con slot=5ms e 10 droni, 1 giro = 50ms → 10 campioni = 500ms di persistenza
-static constexpr int    CONSECUTIVE_NEEDED = 10;
+static constexpr int    CONSECUTIVE_NEEDED    = 10;
 
 static constexpr double c = 299792458.0; // [m/s]
 
@@ -44,11 +47,11 @@ UwbSecurityApp::~UwbSecurityApp() { m_socket = 0; }
 
 void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
                             Ptr<UWBChannel> channel, std::ofstream* csv) {
-    m_id           = id;
-    m_slotId       = id;
-    m_swarmSize    = swarmSize;
-    m_channel      = channel;
-    m_csv          = csv;
+    m_id          = id;
+    m_slotId      = id;
+    m_swarmSize   = swarmSize;
+    m_channel     = channel;
+    m_csv         = csv;
     m_slotDuration = slotDuration;
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
@@ -85,29 +88,35 @@ void UwbSecurityApp::StopApplication() {
 
 // ---------------------------------------------------------------------------
 // TX: broadcast del proprio stato + range condivisi
-// FIX 5: GPS campionato una volta per slot (dopo il check isActive),
-//         salvato in m_myGpsThisSlot per essere riusato in ProcessRanging
-//         senza ricampionare rumore gaussiano.
 // ---------------------------------------------------------------------------
+
 void UwbSecurityApp::SendUwbMessage() {
     m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
                                        &UwbSecurityApp::SendUwbMessage, this);
 
     if (!m_isActive) return;
-
-    // Un solo campionamento GPS per slot: usato sia nell'header che in ProcessRanging
-    m_myGpsThisSlot = GetCurrentGpsPosition();
-
+    
+    Eigen::Vector3d myGps = GetCurrentGpsPosition();
     double currentSimTime = Simulator::Now().GetSeconds();
-    double localTime      = currentSimTime + m_clockOffset;
+    double localTime = currentSimTime + m_clockOffset;
 
     UwbHeader header;
     header.SetSenderId(m_id);
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
-    header.SetGpsPosition(m_myGpsThisSlot.x(), m_myGpsThisSlot.y(), m_myGpsThisSlot.z());
-    header.SetVoteBitmask(GetVoteBitmask());
+    header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
+    std::vector<uint8_t> myAlarms(m_swarmSize, 0); 
+    for (const auto& [peerId, isAlarmed] : m_alarms) {
+        if (m_slotMap.count(peerId)) {
+            uint32_t peerSlot = m_slotMap[peerId];
+            if (peerSlot < myAlarms.size()) {
+                myAlarms[peerSlot] = isAlarmed ? 1 : 0;
+            }
+        }
+    }
+    header.SetAlarmsList(myAlarms);
     header.SetImLeaving(m_imLeaving);
-
+    header.SetGossipLeaves(std::vector<uint32_t>(m_recentLeaves.begin(), m_recentLeaves.end()));
+    
     for (const auto& pair : m_slotMap) {
         uint32_t targetId = pair.first;
         if (targetId < m_myLastRanges.size()) {
@@ -125,10 +134,13 @@ void UwbSecurityApp::SendUwbMessage() {
         std::cout << ">>> GOODBYE TX: drone ID=" << m_id
                   << " ha inviato il messaggio di leave a t="
                   << currentSimTime << "s — radio off." << std::endl;
-        m_isActive     = false;
-        m_imLeaving    = false;
+        m_isActive    = false;
+        m_imLeaving   = false;
         m_pendingLeave = false;
     }
+    //Eigen::Vector3d myGps = GetCurrentGpsPosition();
+    //m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
+    //                                   &UwbSecurityApp::SendUwbMessage, this);
 }
 
 void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
@@ -146,8 +158,18 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         uint32_t senderId = header.GetSenderId();
         if (senderId == m_id) continue;
 
-        // FIX 1: gestione leave senza doppio if annidato
-        // FIX 2: ReorganizeSlots deterministico chiamato correttamente
+        for (uint32_t gossipedLeftId : header.GetGossipLeaves()) {
+            if (m_slotMap.find(gossipedLeftId) != m_slotMap.end()) {
+                std::cout << ">>> [GOSSIP RECOVERY] Io (Drone " << m_id 
+                          << ") mi ero perso l'uscita del Drone " << gossipedLeftId 
+                          << "! Mi allineo ora grazie al pettegolezzo del Drone " << senderId << "." << std::endl;
+                          
+                RemovePeer(gossipedLeftId);
+                ReorganizeSlots(gossipedLeftId);
+            }
+        }
+
+        // --- Gestione messaggio di LEAVE ---
         if (header.GetImLeaving()) {
             std::cout << ">>> GOODBYE RX: drone ID=" << m_id
                       << " ha ricevuto il messaggio di leave da drone ID=" << senderId
@@ -156,26 +178,38 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             ReorganizeSlots(senderId);
             continue;
         }
+        
+        std::vector<uint8_t> rxAlarms = header.GetAlarmsList();
+        for (uint32_t j = 0; j < rxAlarms.size(); ++j) {
+            if (j >= m_swarmSize) break; // Sicurezza per evitare crash se le mappe sono asincrone
+        
+                bool vote = (rxAlarms[j] == 1);
+        
+            // Trovo a quale ID di drone corrisponde questo slot j
+            uint32_t targetId = UINT32_MAX;
+            for (const auto& pair : m_slotMap) {
+                if (pair.second == j) { targetId = pair.first; break; }
+            }
 
-        uint32_t receivedMask = header.GetVoteBitmask();
-        for (const auto& pair : m_slotMap) {
-            uint32_t targetId = pair.first;
-            bool senderSuspectsTarget = !((receivedMask >> targetId) & 1u);
-            if (senderSuspectsTarget) {
-                m_peerVotes[targetId].insert(senderId);
-            } else {
-                m_peerVotes[targetId].erase(senderId);
+            // Registro il voto del mittente verso questo target
+            if (targetId != UINT32_MAX && targetId != m_id) {
+                if (vote) {
+                    m_peerVotes[targetId].insert(senderId);
+                } else {
+                    m_peerVotes[targetId].erase(senderId);
+                }
             }
         }
 
         double txTimeSec = header.GetTxTimestampPs() / 1e12;
         Eigen::Vector3d claimedGps(header.GetGpsX(), header.GetGpsY(), header.GetGpsZ());
 
+        //cancella
         if (m_lastKnownGps.count(senderId) && m_lastKnownTime.count(senderId)) {
-            double dt_gps = txTimeSec - m_lastKnownTime[senderId];
+           double dt_gps = txTimeSec - m_lastKnownTime[senderId];
             if (dt_gps > 0.001 && dt_gps < 2.0) {
                 Eigen::Vector3d vel = (claimedGps - m_lastKnownGps[senderId]) / dt_gps;
-                if (vel.norm() < 50.0) {
+                if (vel.norm() < 50.0) { 
                     m_lastKnownVelocity[senderId] = vel;
                 }
             }
@@ -204,26 +238,25 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     double currentTime = Simulator::Now().GetSeconds();
 
     Ptr<MobilityModel> myMobility = GetNode()->GetObject<MobilityModel>();
-    Eigen::Vector3d myTruePos(myMobility->GetPosition().x,
-                               myMobility->GetPosition().y,
-                               myMobility->GetPosition().z);
+    Eigen::Vector3d myTruePos( myMobility->GetPosition().x, myMobility->GetPosition().y, myMobility->GetPosition().z);
 
     Ptr<MobilityModel> senderMobility = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
-    Eigen::Vector3d senderTruePos(senderMobility->GetPosition().x,
-                                   senderMobility->GetPosition().y,
-                                   senderMobility->GetPosition().z);
+    Eigen::Vector3d senderTruePos( senderMobility->GetPosition().x, senderMobility->GetPosition().y, senderMobility->GetPosition().z);
 
     ChannelCondition cond = m_channel->ComputeChannelCondition(senderTruePos, myTruePos, 0.0);
 
     Ptr<Application> app = NodeList::GetNode(senderId)->GetApplication(0);
     Ptr<UwbSecurityApp> senderApp = DynamicCast<UwbSecurityApp>(app);
     double senderOffset = senderApp->GetClockOffset();
-
+    
     double trueGlobalTxTime = txTimeSec - senderOffset;
-    double distTrue         = (myTruePos - senderTruePos).norm();
-    double tof_true         = distTrue / c;
+    
+    double distTrue = (myTruePos - senderTruePos).norm();
+    double tof_true = distTrue / c;
+    
     double trueGlobalRxTime = trueGlobalTxTime + tof_true + (cond.ranging_error_m / c);
-    double measuredToa      = trueGlobalRxTime + m_clockOffset;
+    
+    double measuredToa = trueGlobalRxTime + m_clockOffset;
 
     double myMeasuredRange = (measuredToa - txTimeSec) * c;
     m_myLastRanges[senderId]    = myMeasuredRange;
@@ -231,11 +264,11 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
 
     if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
         m_ekfBank[senderId].Init(claimedGps);
-        m_lastCalcTime[senderId] = currentTime;
-        m_alarms[senderId]       = false;
-        m_alarmCounter[senderId] = 0;
-        m_okCounter[senderId]    = 0;
-        return;
+        m_lastCalcTime[senderId]  = currentTime;
+        m_alarms[senderId]        = false;
+        m_alarmCounter[senderId]  = 0;
+        m_okCounter[senderId]     = 0;
+        return; 
     }
 
     double dt = currentTime - m_lastCalcTime[senderId];
@@ -244,10 +277,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
 
     std::vector<EKF::Msmnt> inputData;
 
-    // FIX 5: usa m_myGpsThisSlot (campionato una volta in SendUwbMessage)
-    //        invece di richiamare GetCurrentGpsPosition() che aggiunge nuovo rumore
     EKF::Msmnt myData;
-    myData.anchor_pos   = m_myGpsThisSlot;
+    myData.anchor_pos   = GetCurrentGpsPosition();
     myData.toa          = measuredToa;
     myData.tx_timestamp = txTimeSec;
     myData.is_direct    = true;
@@ -273,15 +304,15 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
         Eigen::Vector3d peerGps = m_lastKnownGps[k];
         double peerAge = currentTime - m_lastKnownTime[k];
         if (m_lastKnownVelocity.count(k) && peerAge < 1.0)
-            peerGps += m_lastKnownVelocity[k] * peerAge;
+        peerGps += m_lastKnownVelocity[k] * peerAge;
 
         EKF::Msmnt peerData;
-        peerData.anchor_pos = peerGps;
-        peerData.is_direct  = false;
-        peerData.range      = m_networkRanges[k][senderId];
-        peerData.is_los     = m_networkRangesLos.count(k) ?
-                              (m_networkRangesLos[k].count(senderId) ?
-                               m_networkRangesLos[k][senderId] : true) : true;
+        peerData.anchor_pos    = peerGps;
+        peerData.is_direct     = false;
+        peerData.range         = m_networkRanges[k][senderId];
+        peerData.is_los        = m_networkRangesLos.count(k) ?
+                         (m_networkRangesLos[k].count(senderId) ?
+                          m_networkRangesLos[k][senderId] : true) : true;
         inputData.push_back(peerData);
     }
 
@@ -290,22 +321,15 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     }
     m_lastCalcTime[senderId] = currentTime;
 
-    double mahal    = m_ekfBank[senderId].GetMahalanobisDistance();
-    double posStd   = m_ekfBank[senderId].GetPositionStdDev();
+
+    double mahal  = m_ekfBank[senderId].GetMahalanobisDistance();
+    double posStd = m_ekfBank[senderId].GetPositionStdDev();
     Eigen::Vector3d estimatedPos = m_ekfBank[senderId].GetPosition();
     double euclError = (estimatedPos - claimedGps).norm();
 
-    // FIX 7: cap superiore a 25m per evitare che alta incertezza EKF
-    //        (causata dall'attacco stesso) alzi la soglia e sopprima l'allarme
-    double adaptiveThreshold = std::min(std::max(6.0, 3.5 * posStd), 25.0);
+    double adaptiveThreshold = std::max(6.0, 3.5 * posStd);
 
-    // FIX 4: soglia Mahalanobis adattiva al numero di misure (chi con n gdl)
-    //        In precedenza era fissa a 5.0 (calibrata per 1 gdl).
-    //        Ora: sqrt(n) * 3.5 → cresce con il numero di ancore disponibili.
-    int    n_meas        = (int)inputData.size();
-    double mahalThreshold = std::sqrt((double)n_meas) * 3.5;
-
-    bool suspiciousNow = (mahal > mahalThreshold) ||
+    bool suspiciousNow = (mahal  > MAHAL_ALARM_THRESHOLD) ||
                          (euclError > adaptiveThreshold);
 
     if (currentTime < 15.0) suspiciousNow = false;
@@ -323,16 +347,12 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
     if (m_okCounter[senderId] >= CONSECUTIVE_NEEDED)
         m_alarms[senderId] = false;
 
-    uint32_t myVote       = m_alarms[senderId] ? 1u : 0u;
+    uint32_t myVote = m_alarms[senderId] ? 1u : 0u;
     uint32_t peerVoteCount = m_peerVotes.count(senderId)
                              ? (uint32_t)m_peerVotes[senderId].size()
                              : 0u;
-    uint32_t totalVotes = myVote + peerVoteCount;
-
-    // FIX 6: activeNodes ricavato da m_slotMap (sempre aggiornata)
-    //        invece di m_lastKnownGps.size()+1 (sottostimato all'inizio
-    //        e dopo join recenti)
-    uint32_t activeNodes = (uint32_t)m_slotMap.size();
+    uint32_t totalVotes  = myVote + peerVoteCount;
+    uint32_t activeNodes = (uint32_t)m_lastKnownGps.size() + 1;
     uint32_t threshold   = std::max(2u, (activeNodes * 2u) / 3u);
 
     bool collectiveAlarm = (totalVotes >= threshold);
@@ -342,7 +362,6 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
                   << " sender=" << senderId
                   << " n_peer=" << inputData.size() - 1
                   << " mahal="   << mahal
-                  << " mahal_thr=" << mahalThreshold
                   << " ekf_err=" << (estimatedPos - senderTruePos).norm()
                   << " claimed_err=" << (claimedGps - senderTruePos).norm()
                   << " alarm="   << m_alarms[senderId]
@@ -365,7 +384,7 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
                         mobility->GetPosition().y,
                         mobility->GetPosition().z);
 
-    std::normal_distribution<double> noise_xy(0.0, 0.2);
+    std::normal_distribution<double> noise_xy(0.0, 0.2); 
     std::normal_distribution<double> noise_z(0.0, 0.4);
 
     gps.x() += noise_xy(m_rng);
@@ -373,8 +392,8 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
     gps.z() += noise_z(m_rng);
 
     if (m_isMalicious) {
-        const double TARGET_OFFSET = 15.0;
-        const double RAMP_DURATION = 10.0;
+        const double TARGET_OFFSET = 15.0; 
+        const double RAMP_DURATION = 10.0; 
         double elapsed  = Simulator::Now().GetSeconds() - m_attackStartTime;
         double progress = std::min(1.0, std::max(0.0, elapsed / RAMP_DURATION));
         gps.y() += TARGET_OFFSET * progress;
@@ -389,8 +408,32 @@ uint32_t UwbSecurityApp::GetVoteBitmask() {
     return mask;
 }
 
+/*void UwbSecurityApp::SetActive(bool active) {
+    m_isActive = active;
+}*/
+
 void UwbSecurityApp::SetActive(bool active) {
     m_isActive = active;
+    
+    // Svuota la memoria quando il drone esce fisicamente dal geofence
+    if (!active) {
+        m_lastKnownGps.clear();
+        m_lastKnownTime.clear();
+        m_lastKnownVelocity.clear();
+        m_ekfBank.clear();
+        m_alarms.clear();
+        m_alarmCounter.clear();
+        m_okCounter.clear();
+        m_networkRanges.clear();
+        m_networkRangeTimes.clear();
+        m_networkRangesLos.clear();
+        m_peerVotes.clear();
+        m_slotMap.clear();
+        m_recentLeaves.clear(); // Azzera anche i pettegolezzi!
+        
+        m_myLastRanges.assign(m_swarmSize, -1.0);
+        m_myLastRangesLos.assign(m_swarmSize, true);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +441,7 @@ void UwbSecurityApp::SetActive(bool active) {
 // invia un messaggio con m_imLeaving=true, poi si disattiva da solo.
 // ---------------------------------------------------------------------------
 void UwbSecurityApp::ScheduleLeave() {
-    if (m_pendingLeave) return; // chiamata doppia, ignora
+    if (m_pendingLeave) return;   // chiamata doppia, ignora
     m_pendingLeave = true;
     m_imLeaving    = true;
     std::cout << ">>> LEAVE SCHEDULATO: drone ID=" << m_id
@@ -411,15 +454,9 @@ void UwbSecurityApp::AddPeer(uint32_t peerId) {
     m_lastKnownTime.erase(peerId);
     m_lastKnownVelocity.erase(peerId);
     m_ekfBank.erase(peerId);
-    m_alarms[peerId]       = false;
+    m_alarms[peerId] = false;
     m_alarmCounter[peerId] = 0;
-    m_okCounter[peerId]    = 0;
-
-    // FIX 3: ridimensiona i vettori di range se il nuovo ID supera la taglia iniziale
-    if (peerId >= m_myLastRanges.size()) {
-        m_myLastRanges.resize(peerId + 1, -1.0);
-        m_myLastRangesLos.resize(peerId + 1, true);
-    }
+    m_okCounter[peerId] = 0;
 }
 
 void UwbSecurityApp::RemovePeer(uint32_t peerId) {
@@ -451,32 +488,59 @@ void UwbSecurityApp::InitSlotMap(const std::vector<uint32_t>& activeIds) {
 void UwbSecurityApp::AddPeerSlot(uint32_t peerId, uint32_t slotId) {
     m_slotMap[peerId] = slotId;
     m_swarmSize = (uint32_t)m_slotMap.size();
-
-    // FIX 3: ridimensiona i vettori di range se il nuovo ID supera la taglia iniziale
-    if (peerId >= m_myLastRanges.size()) {
-        m_myLastRanges.resize(peerId + 1, -1.0);
-        m_myLastRangesLos.resize(peerId + 1, true);
-    }
 }
 
-// FIX 2: ricalcolo deterministico degli slot dopo un leave.
-// In precedenza si faceva uno swap (ultimo → buco) che poteva divergere
-// tra nodi diversi se le loro slotMap locali non erano identiche.
-// Ora ogni nodo riordina per ID crescente → risultato identico su tutti.
 void UwbSecurityApp::ReorganizeSlots(uint32_t leavingDroneId) {
+    if (m_slotMap.find(leavingDroneId) == m_slotMap.end()) {
+        return; 
+    }
+
+    m_recentLeaves.push_back(leavingDroneId);
+    if (m_recentLeaves.size() > 5) {
+        m_recentLeaves.pop_front();
+    }
+
+    uint32_t emptySlot = m_slotMap[leavingDroneId];
+    
+    uint32_t maxSlot = 0;
+    uint32_t lastDroneId = leavingDroneId; 
+    
+    for (const auto& pair : m_slotMap) {
+        if (pair.second > maxSlot) {
+            maxSlot = pair.second;
+            lastDroneId = pair.first;
+        }
+    }
+
     m_slotMap.erase(leavingDroneId);
 
-    std::vector<uint32_t> sortedIds;
-    for (const auto& pair : m_slotMap)
-        sortedIds.push_back(pair.first);
-    std::sort(sortedIds.begin(), sortedIds.end());
+    if (lastDroneId != leavingDroneId) {
+        m_slotMap[lastDroneId] = emptySlot;
+    }
 
-    uint32_t slot = 0;
-    for (uint32_t id : sortedIds)
-        m_slotMap[id] = slot++;
-
-    if (m_slotMap.count(m_id))
+    if (m_slotMap.count(m_id)) {
         m_slotId = m_slotMap[m_id];
-
+    }
+    
     m_swarmSize = (uint32_t)m_slotMap.size();
+
+    if (m_id == 0) {
+        std::cout << "\n[TDMA Reorg - Visto da Drone 0] Il Drone " << leavingDroneId 
+                  << " è uscito e ha liberato lo Slot " << emptySlot << "." << std::endl;
+                  
+        if (lastDroneId != leavingDroneId) {
+            std::cout << "   -> Il Drone " << lastDroneId << " (che era in coda allo Slot " 
+                      << maxSlot << ") è stato spostato per tappare il buco nello Slot " << emptySlot << "!" << std::endl;
+        } else {
+            std::cout << "   -> Il Drone uscente era già in fondo alla coda. Nessuno spostamento necessario." << std::endl;
+        }
+        std::cout << "   -> Nuova dimensione del frame TDMA: " << m_swarmSize << " slot.\n" << std::endl;
+    }
+
+    // B) Conferma personale (Il drone che subisce il trasloco lo annuncia)
+    if (m_id == lastDroneId && lastDroneId != leavingDroneId) {
+        std::cout << ">>> CAMBIO SLOT INTERNO: Io (Drone " << m_id 
+                  << ") modifico il mio timer. Trasmetterò nello Slot " << emptySlot 
+                  << " invece dello Slot " << maxSlot << "!" << std::endl;
+    }
 }

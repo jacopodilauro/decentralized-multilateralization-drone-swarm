@@ -15,6 +15,7 @@
 #include <vector>
 #include <fstream>
 #include <set>
+#include <deque>
 
 using namespace ns3;
 
@@ -57,7 +58,6 @@ private:
     void ReorganizeSlots(uint32_t leavingDroneId);
 
     Eigen::Vector3d GetCurrentGpsPosition();
-    Eigen::Vector3d m_myGpsThisSlot;
     uint32_t        GetVoteBitmask();
 
     uint32_t        m_id;
@@ -93,6 +93,8 @@ private:
     std::map<uint32_t, int>  m_alarmCounter;
     std::map<uint32_t, std::set<uint32_t>> m_peerVotes;
     std::map<uint32_t, int>  m_okCounter;
+
+    std::deque<uint32_t> m_recentLeaves;
 };
 
 #endif

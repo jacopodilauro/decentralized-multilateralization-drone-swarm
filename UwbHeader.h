@@ -23,7 +23,7 @@ public:
     void SetSenderId (uint32_t id);
     void SetTxTimestampPs (uint64_t timestamp_ps);
     void SetGpsPosition (double x, double y, double z);
-    void SetVoteBitmask (uint32_t mask);
+    //void SetVoteBitmask (uint32_t mask);
     void SetImLeaving (bool leaving);
 
     void SetSharedRange(uint32_t targetId, double range);
@@ -34,8 +34,13 @@ public:
     double GetGpsX () const;
     double GetGpsY () const;
     double GetGpsZ () const;
-    uint32_t GetVoteBitmask () const;
+    //uint32_t GetVoteBitmask () const;
     bool GetImLeaving () const;
+    void SetAlarmsList(const std::vector<uint8_t>& alarms);
+    std::vector<uint8_t> GetAlarmsList() const;
+
+    void SetGossipLeaves(const std::vector<uint32_t>& leaves);
+    std::vector<uint32_t> GetGossipLeaves() const;
 
 private:
     uint32_t m_senderId;
@@ -47,6 +52,8 @@ private:
     bool m_imLeaving;
 
     std::vector<double> m_sharedRanges;
+    std::vector<uint8_t> m_alarmsList;    // <-- Assicurati di avere questo!
+    std::vector<uint32_t> m_gossipLeaves;
 };
 
 } 
