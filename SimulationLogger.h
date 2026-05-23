@@ -6,10 +6,6 @@
 
 class SimulationLogger {
 public:
-    /**
-     * @brief Scrive una singola riga di log nel file CSV con il formato esatto 
-     * richiesto dagli script Python di analisi.
-     */
     static void LogObservation(
         double time, 
         int sender_id, 
@@ -19,7 +15,11 @@ public:
         Eigen::Vector3d true_pos,
         bool alarm,
         Eigen::Vector3d recovered_pos,
-        std::ofstream& csv
+        std::ofstream& csv,
+        uint32_t totalVotes, 
+        uint32_t threshold,
+        uint32_t activeNodes,
+        uint32_t peerVotes
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -29,7 +29,9 @@ public:
             << claimed_gps.x() << "," << claimed_gps.y() << "," << claimed_gps.z() << ","
             << true_pos.x() << "," << true_pos.y() << "," << true_pos.z() << ","
             << discrepancy << "," << estimation_error << "," << alarm << ","
-            << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << "\n";
+            << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << ","
+            << totalVotes << "," << threshold << "," 
+            << activeNodes << "," << peerVotes << "\n";
     }
 };
 

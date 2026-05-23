@@ -23,8 +23,9 @@ public:
     void SetSenderId (uint32_t id);
     void SetTxTimestampPs (uint64_t timestamp_ps);
     void SetGpsPosition (double x, double y, double z);
-    void SetVoteBitmask (uint32_t mask);
-    
+    //void SetVoteBitmask (uint32_t mask);
+    void SetImLeaving (bool leaving);
+
     void SetSharedRange(uint32_t targetId, double range);
     double GetSharedRange(uint32_t targetId) const;
 
@@ -33,7 +34,16 @@ public:
     double GetGpsX () const;
     double GetGpsY () const;
     double GetGpsZ () const;
-    uint32_t GetVoteBitmask () const;
+    //uint32_t GetVoteBitmask () const;
+    bool GetImLeaving () const;
+    void SetAlarmsList(const std::vector<uint8_t>& alarms);
+    std::vector<uint8_t> GetAlarmsList() const;
+
+    void SetGossipLeaves(const std::vector<uint32_t>& leaves);
+    std::vector<uint32_t> GetGossipLeaves() const;
+
+    void SetGossipEvictions(std::vector<uint32_t> evictions);
+    std::vector<uint32_t> GetGossipEvictions() const;
 
 private:
     uint32_t m_senderId;
@@ -42,11 +52,12 @@ private:
     double m_gpsY;
     double m_gpsZ;
     uint32_t m_voteBitmask;
-    
-    // Visto che voglio avere distanze dinamiche uso un vector, 
-    //  temo sia meno efficente va verifichiamo.
-    // double m_sharedRanges[6]; 
+    bool m_imLeaving;
+
     std::vector<double> m_sharedRanges;
+    std::vector<uint8_t> m_alarmsList;
+    std::vector<uint32_t> m_gossipLeaves;
+    std::vector<uint32_t> m_gossipEvictions;
 };
 
 } 

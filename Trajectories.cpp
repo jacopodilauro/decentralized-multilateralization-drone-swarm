@@ -15,238 +15,334 @@ using namespace ns3;
 namespace {
     using TrajectoryFunc = std::function<Vector3d(double)>;
 
-    const double RADIUS = 80.0;              
-    const double SPEED_FACTOR = 1.0;         
-
+    constexpr double RADIUS       = 80.0;
+    const double SPEED_FACTOR = 1.0;
     const Vector3d INITIAL_CENTER(100.0, 0.0, 50.0);
 
     Vector3d GetCurrentCenter(double t, double speed) {
         return INITIAL_CENTER + (Vector3d(speed, 0.0, 0.0) * t);
     }
 
+    // -----------------------------------------------------------------------
+    // Ken Perlin
+    // -----------------------------------------------------------------------
+    double Smoothstep(double x) {
+        x = std::max(0.0, std::min(1.0, x));
+        return x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+    }
+
     // ==========================================
-    // TRAIETTORIE ESISTENTI (SCENARY 1)
+    // TRAIETTORIE BASE
     // ==========================================
+
     TrajectoryFunc MakeOctahedronFormation(int id, double speed) {
         return [id, speed](double t) -> Vector3d {
             Vector3d center = GetCurrentCenter(t, speed);
-            if (id == 0) return center; 
-
-            double omega = 0.2 * SPEED_FACTOR; 
+            if (id == 0) return center;
+            double omega = 0.2 * SPEED_FACTOR;
             double theta = omega * t;
-            double local_x = 0, local_y = 0, local_z = 0;
-
-            switch(id) { 
-                case 1: local_z = RADIUS; break;
-                case 2: local_z = -RADIUS; break;  
-                case 3: 
-                    local_x = RADIUS * cos(theta); 
-                    local_y = RADIUS * sin(theta); 
-                    break;
-                case 4: 
-                    local_x = RADIUS * cos(theta + M_PI*2/3); 
-                    local_y = RADIUS * sin(theta + M_PI*2/3); 
-                    break;
-                case 5: 
-                    local_x = RADIUS * cos(theta + M_PI*4/3); 
-                    local_y = RADIUS * sin(theta + M_PI*4/3); 
-                    break;
+            double lx = 0, ly = 0, lz = 0;
+            switch(id) {
+                case 1: lz =  RADIUS; break;
+                case 2: lz = -RADIUS; break;
+                case 3: lx = RADIUS*cos(theta);            ly = RADIUS*sin(theta);            break;
+                case 4: lx = RADIUS*cos(theta+M_PI*2/3);  ly = RADIUS*sin(theta+M_PI*2/3);  break;
+                case 5: lx = RADIUS*cos(theta+M_PI*4/3);  ly = RADIUS*sin(theta+M_PI*4/3);  break;
             }
-            return Vector3d(center.x() + local_x, center.y() + local_y, center.z() + local_z);
+            return Vector3d(center.x()+lx, center.y()+ly, center.z()+lz);
         };
     }
-    
+
     TrajectoryFunc MakeFibonacciSphereFormation(int id, int total, double speed) {
         return [id, total, speed](double t) -> Vector3d {
             Vector3d center = GetCurrentCenter(t, speed);
             if (id == 0) return center;
-
             int n = id - 1;
             int N = total - 1;
-
-            double phi = acos(1.0 - 2.0 * (n + 0.5) / N); 
-            double goldenRatio = (1.0 + sqrt(5.0)) / 2.0;
-            double theta = 2.0 * M_PI * n / goldenRatio;  
-
-            double rotationOmega = 0.2 * SPEED_FACTOR;
-            theta += rotationOmega * t;
-
-            double local_x = RADIUS * sin(phi) * cos(theta);
-            double local_y = RADIUS * sin(phi) * sin(theta);
-            double local_z = RADIUS * cos(phi);
-
-            return Vector3d(center.x() + local_x, center.y() + local_y, center.z() + local_z);
+            double phi   = acos(1.0 - 2.0*(n+0.5)/N);
+            double theta = 2.0*M_PI*n / ((1.0+sqrt(5.0))/2.0);
+            theta += 0.2 * SPEED_FACTOR * t;
+            return Vector3d(
+                center.x() + RADIUS*sin(phi)*cos(theta),
+                center.y() + RADIUS*sin(phi)*sin(theta),
+                center.z() + RADIUS*cos(phi));
         };
     }
 
-    // ==========================================
-    // NUOVE TRAIETTORIE
-    // ==========================================
-
-    // SCENARY 2: PESSIMA (Caotica e geometricamente svantaggiosa)
     TrajectoryFunc MakePessimaFormation(int id, double speed) {
         return [id, speed](double t) -> Vector3d {
             Vector3d center = GetCurrentCenter(t, speed);
             if (id == 0) return center;
-            
-            // Movimento basato su curve di Lissajous con frequenze sballate
-            double local_x = RADIUS * sin(0.3 * t + id) * cos(0.1 * t);
-            double local_y = RADIUS * cos(0.4 * t - id) * sin(0.2 * t);
-            double local_z = RADIUS * sin(0.5 * t * id) * 0.5; // Z molto schiacciata (pessimo per il 3D)
-            
-            return Vector3d(center.x() + local_x, center.y() + local_y, center.z() + local_z);
+            return Vector3d(
+                center.x() + RADIUS*sin(0.3*t+id)*cos(0.1*t),
+                center.y() + RADIUS*cos(0.4*t-id)*sin(0.2*t),
+                center.z() + RADIUS*sin(0.5*t*id)*0.5);
         };
     }
 
-    // SCENARY 3: MEDIA (Anello cilindrico sfalsato)
     TrajectoryFunc MakeMediaFormation(int id, int total, double speed) {
         return [id, total, speed](double t) -> Vector3d {
             Vector3d center = GetCurrentCenter(t, speed);
             if (id == 0) return center;
-
-            // Orbita circolare piana, sfalsata su Z in base a pari/dispari
-            double theta = (2.0 * M_PI * id / (total - 1)) + (0.2 * t * SPEED_FACTOR);
-            double local_x = RADIUS * cos(theta);
-            double local_y = RADIUS * sin(theta);
-            double local_z = (id % 2 == 0) ? 20.0 : -20.0; 
-
-            return Vector3d(center.x() + local_x, center.y() + local_y, center.z() + local_z);
+            double theta = (2.0*M_PI*id/(total-1)) + (0.2*t*SPEED_FACTOR);
+            return Vector3d(
+                center.x() + RADIUS*cos(theta),
+                center.y() + RADIUS*sin(theta),
+                center.z() + ((id%2==0) ? 20.0 : -20.0));
         };
     }
 
-    // SCENARY 4: IDEALE (Sfera perfetta che ruota su assi multipli)
     TrajectoryFunc MakeIdealeFormation(int id, int total, double speed) {
         return [id, total, speed](double t) -> Vector3d {
             Vector3d center = GetCurrentCenter(t, speed);
             if (id == 0) return center;
-
-            int n = id - 1;
-            int N = total - 1;
-
-            double phi = acos(1.0 - 2.0 * (n + 0.5) / N); 
-            double theta = 2.0 * M_PI * n / ((1.0 + sqrt(5.0)) / 2.0);  
-
-            // Rotazione dinamica su due assi per variare costantemente la prospettiva
-            theta += 0.3 * t * SPEED_FACTOR; 
-            phi += sin(0.1 * t) * 0.5; // Lieve oscillazione polare
-
-            double local_x = RADIUS * sin(phi) * cos(theta);
-            double local_y = RADIUS * sin(phi) * sin(theta);
-            double local_z = RADIUS * cos(phi);
-
-            return Vector3d(center.x() + local_x, center.y() + local_y, center.z() + local_z);
+            int n = id-1, N = total-1;
+            double phi   = acos(1.0 - 2.0*(n+0.5)/N);
+            double theta = 2.0*M_PI*n / ((1.0+sqrt(5.0))/2.0);
+            theta += 0.3*t*SPEED_FACTOR;
+            phi   += sin(0.1*t)*0.5;
+            return Vector3d(
+                center.x() + RADIUS*sin(phi)*cos(theta),
+                center.y() + RADIUS*sin(phi)*sin(theta),
+                center.z() + RADIUS*cos(phi));
         };
     }
 
-    // SCENARY 5: REALISTICA (Tutti dritti in volo, poi accerchiamento edificio)
-    // SCENARY 5: REALISTICA (Ottimizzata per sciami numerosi, 60+ droni)
     TrajectoryFunc MakeRealisticaFormation(int id, int total, double speed) {
         return [id, total, speed](double t) -> Vector3d {
-            // Setup dell'edificio da circondare
-            Vector3d buildingCenter(300.0, 0.0, 50.0); 
-            double buildingRadius = 55.0; // Raggio aumentato per ospitare 60 droni
-            
-            Vector3d swarmCenter = GetCurrentCenter(t, speed);
+            Vector3d buildingCenter(300.0, 0.0, 50.0);
+            double   buildingRadius = 55.0;
+            Vector3d swarmCenter    = GetCurrentCenter(t, speed);
 
-            // 1. Calcolo Posizione V-Formation (Sciame ad alta densità)
-            // Ridotti i moltiplicatori per compattare lo stormo
-            double offset_x = -1.2 * id; 
-            double offset_y = (id % 2 == 0 ? 1 : -1) * 1.5 * id;
-            // Aggiunto sfasamento su 4 livelli di altezza per evitare collisioni fisiche nella V
-            double offset_z = (id % 4) * 2.5; 
-            
-            Vector3d pos_V = swarmCenter + Vector3d(offset_x, offset_y, offset_z);
+            Vector3d pos_V = swarmCenter + Vector3d(
+                -1.2*id,
+                (id%2==0?1:-1)*1.5*id,
+                (id%4)*2.5);
 
-            // 2. Calcolo Posizione Orbita (Accerchiamento)
-            double t_reach = (buildingCenter.x() - INITIAL_CENTER.x()) / speed; 
-            double timeOrbiting = t - t_reach;
-            
-            double omega = 0.15; 
-            double theta = (2.0 * M_PI * id / total) + (omega * timeOrbiting);
-            // Sfasamento verticale morbido, distribuito meglio per tanti droni (id * 0.5)
-            double altitudine = 50.0 + 25.0 * sin(timeOrbiting * 0.1 + id * 0.5);
+            double t_reach      = (buildingCenter.x()-INITIAL_CENTER.x()) / speed;
+            double timeOrbit    = t - t_reach;
+            double theta        = (2.0*M_PI*id/total) + (0.05*timeOrbit);
+            double alt          = 50.0 + 15.0*sin(timeOrbit*0.05 + id*0.5);
 
             Vector3d pos_Orbit(
-                buildingCenter.x() + buildingRadius * cos(theta),
-                buildingCenter.y() + buildingRadius * sin(theta),
-                altitudine
-            );
+                buildingCenter.x() + buildingRadius*cos(theta),
+                buildingCenter.y() + buildingRadius*sin(theta),
+                alt);
 
-            // 3. Logica di Blending / Transizione
-            // Tempo aumentato a 20s per permettere ai droni di coda di curvare senza accelerazioni impossibili
-            double transition_duration = 20.0; 
-            double t_start_transition = t_reach - transition_duration;
-
-            if (t <= t_start_transition) {
-                // FASE 1: Volo in formazione compatta
-                return pos_V;
-            } 
-            else if (t < t_reach) {
-                // FASE 2: Transizione fluida (manovra di allargamento)
-                double progress = (t - t_start_transition) / transition_duration;
-                // Funzione Smoothstep
-                double alpha = progress * progress * (3.0 - 2.0 * progress); 
-                
-                return pos_V * (1.0 - alpha) + pos_Orbit * alpha;
-            } 
-            else {
-                // FASE 3: Orbita a 360 gradi attorno all'edificio
-                return pos_Orbit;
+            double t_trans = t_reach - 45.0;
+            if      (t <= t_trans) return pos_V;
+            else if (t <  t_reach) {
+                double a = Smoothstep((t-t_trans)/45.0);
+                return pos_V*(1.0-a) + pos_Orbit*a;
             }
+            else return pos_Orbit;
         };
     }
+
+    // ==========================================
+    // TRAIETTORIA OSPITE
+    // ==========================================
+
+    // Durate manovre [s]
+    constexpr double APPROACH_DURATION = 15.0;
+    constexpr double DEPART_DURATION   = 15.0;
+
+    // Distanza di partenza dall'orbita [m] — fuori portata UWB all'inizio
+    constexpr double ENTRY_DISTANCE = RADIUS * 3.5;   // ~280m
+
+    // ------------------------------------------------------------------
+    // Slot Fibonacci che spetta all'ospite.
+    // Usiamo totalBase fisso per non scompaginare la sfera principale.
+    // L'ID ospite viene mappato con modulo così è sempre ben distribuito.
+    // ------------------------------------------------------------------
+    Vector3d FibonacciSlot(int guestId, double t, double speed, int totalBase) {
+        Vector3d center = GetCurrentCenter(t, speed);
+        int n = guestId % std::max(1, totalBase);
+        int N = std::max(2, totalBase);
+        double phi   = acos(1.0 - 2.0*(n+0.5)/N);
+        double theta = 2.0*M_PI*n / ((1.0+sqrt(5.0))/2.0);
+        theta += 0.2 * SPEED_FACTOR * t;   // sincronizzato con gli altri
+        return Vector3d(
+            center.x() + RADIUS*sin(phi)*cos(theta),
+            center.y() + RADIUS*sin(phi)*sin(theta),
+            center.z() + RADIUS*cos(phi));
+    }
+
+    // ------------------------------------------------------------------
+    // Punto di partenza dell'avvicinamento:
+    // Y+ rispetto al centro sciame al momento del join, quota invariata.
+    // Rimane fisso nello spazio (il drone deve rincorrere l'orbita).
+    // ------------------------------------------------------------------
+    Vector3d EntryPos(double t_join, double speed) {
+        Vector3d center = GetCurrentCenter(t_join, speed);
+        return Vector3d(center.x(), center.y() + ENTRY_DISTANCE, center.z());
+    }
+
+    // ------------------------------------------------------------------
+    // Traiettoria dopo il leave:
+    //   - X: segue lo speed dello sciame (rimane nel frame orizzontale)
+    //   - Y: si allontana verso Y+ a velocità costante
+    //   - Z: quota al momento del leave (costante)
+    // ------------------------------------------------------------------
+    Vector3d DepartPos(int guestId, double t_leave, double t_now,
+                       double speed, int totalBase)
+    {
+        Vector3d orbitAtLeave = FibonacciSlot(guestId, t_leave, speed, totalBase);
+        double dt             = t_now - t_leave;
+        double depart_vy      = ENTRY_DISTANCE / DEPART_DURATION;   // [m/s]
+        return Vector3d(
+            orbitAtLeave.x() + speed * dt,      // segue X dello sciame
+            orbitAtLeave.y() + depart_vy * dt,  // vira verso fuori
+            orbitAtLeave.z());                   // quota costante
+    }
+
+    // ------------------------------------------------------------------
+    // MakeGuestTrajectory — assembla le tre fasi con smoothstep
+    // ------------------------------------------------------------------
+    TrajectoryFunc MakeGuestTrajectory(int guestId, double t_join,
+                                       double t_leave, double speed,
+                                       int totalBase)
+    {
+        return [=](double t) -> Vector3d
+        {
+            const double t_approach_start = t_join - APPROACH_DURATION;
+
+            // Prima dell'avvicinamento: fermo all'entry position
+            if (t < t_approach_start) {
+                return EntryPos(t_join, speed);
+            }
+
+            // ---- FASE 1: AVVICINAMENTO ----
+            if (t < t_join) {
+                double alpha      = Smoothstep((t - t_approach_start) / APPROACH_DURATION);
+                Vector3d startPos = EntryPos(t_join, speed);
+                Vector3d slotPos  = FibonacciSlot(guestId, t, speed, totalBase);
+                return startPos*(1.0-alpha) + slotPos*alpha;
+            }
+
+            // ---- FASE 2: ORBITA ----
+            bool   hasLeave      = (t_leave > 0.0);
+            double t_depart_end  = hasLeave ? (t_leave + DEPART_DURATION) : 1e9;
+            double t_depart_start = hasLeave ? t_leave : 1e9;
+
+            if (t < t_depart_start) {
+                return FibonacciSlot(guestId, t, speed, totalBase);
+            }
+
+            // ---- FASE 3: ALLONTANAMENTO ----
+            if (t < t_depart_end) {
+                double alpha      = Smoothstep((t - t_depart_start) / DEPART_DURATION);
+                Vector3d orbitPos = FibonacciSlot(guestId, t_depart_start, speed, totalBase);
+                Vector3d departPos = DepartPos(guestId, t_depart_start, t, speed, totalBase);
+                return orbitPos*(1.0-alpha) + departPos*alpha;
+            }
+
+            // Dopo l'allontanamento: continua dritto fuori portata
+            return DepartPos(guestId, t_depart_start,
+                             t_depart_end, speed, totalBase)
+                   + Vector3d(speed*(t - t_depart_end), 0.0, 0.0);
+        };
+    }
+
+    // ==========================================
     // DISPATCHER
     // ==========================================
 
     TrajectoryFunc GetAnchorTrajectory(int id, int total, double speed, int scenary) {
         switch (scenary) {
-            case 1: 
-                return (total <= 6) ? MakeOctahedronFormation(id, speed) : MakeFibonacciSphereFormation(id, total, speed);
-            case 2: 
-                return MakePessimaFormation(id, speed);
-            case 3: 
-                return MakeMediaFormation(id, total, speed);
-            case 4: 
-                return MakeIdealeFormation(id, total, speed);
-            case 5: 
-                return MakeRealisticaFormation(id, total, speed);
-            default: 
-                return MakeFibonacciSphereFormation(id, total, speed);
+            case 1:  return (total <= 6) ? MakeOctahedronFormation(id, speed)
+                                         : MakeFibonacciSphereFormation(id, total, speed);
+            case 2:  return MakePessimaFormation(id, speed);
+            case 3:  return MakeMediaFormation(id, total, speed);
+            case 4:  return MakeIdealeFormation(id, total, speed);
+            case 5:  return MakeRealisticaFormation(id, total, speed);
+            default: return MakeFibonacciSphereFormation(id, total, speed);
         }
     }
 
     TrajectoryFunc GetTargetTrajectory(double speed, int scenary) {
         switch (scenary) {
-            case 1: return MakeFibonacciSphereFormation(0, 1, speed); 
-            case 2: return MakePessimaFormation(0, speed);
-            case 3: return MakeMediaFormation(0, 1, speed);
-            case 4: return MakeIdealeFormation(0, 1, speed);
-            case 5: return MakeRealisticaFormation(0, 1, speed); // Nel caso 5, il target si comporta come gli altri!
+            case 1:  return MakeFibonacciSphereFormation(0, 1, speed);
+            case 2:  return MakePessimaFormation(0, speed);
+            case 3:  return MakeMediaFormation(0, 1, speed);
+            case 4:  return MakeIdealeFormation(0, 1, speed);
+            case 5:  return MakeRealisticaFormation(0, 1, speed);
             default: return MakeFibonacciSphereFormation(0, 1, speed);
         }
     }
-}
 
-void AssignTrajectoryToNode(Ptr<Node> node, int id, int total_nodes, double simTime, double speed, double step_sec, int scenary) 
+} // namespace anonimo
+
+// ===========================================================================
+// AssignTrajectoryToNode — invariata
+// ===========================================================================
+void AssignTrajectoryToNode(Ptr<Node> node, int id, int total_nodes,
+                             double simTime, double speed,
+                             double step_sec, int scenary)
 {
     Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
-    
     if (!mob) {
-        std::cerr << "ERRORE: WaypointMobilityModel non trovato sul nodo " << id << std::endl;
+        std::cerr << "ERRORE: WaypointMobilityModel non trovato sul nodo "
+                  << id << std::endl;
         return;
     }
-    
-    TrajectoryFunc trajFunc;
-    if (id == 0) {
-        trajFunc = GetTargetTrajectory(speed, scenary);
-    } else {
-        trajFunc = GetAnchorTrajectory(id, total_nodes, speed, scenary);
+
+    TrajectoryFunc trajFunc = (id == 0)
+        ? GetTargetTrajectory(speed, scenary)
+        : GetAnchorTrajectory(id, total_nodes, speed, scenary);
+
+    for (double t = 0.0; t <= simTime + step_sec; t += step_sec) {
+        Vector3d    p = trajFunc(t);
+        mob->AddWaypoint(Waypoint(Seconds(t), ns3::Vector(p.x(), p.y(), p.z())));
+    }
+}
+
+// ===========================================================================
+// AssignGuestTrajectory — NUOVA (Passo 2)
+//
+// Chiamata da OnDroneJoin in main.cpp al momento del join.
+// Sovrascrive i waypoint di "parcheggio" (-9999) con la traiettoria reale.
+//
+// WaypointMobilityModel accetta waypoint anche passati rispetto al tempo
+// corrente del simulatore se il nodo non si è ancora mosso da lì —
+// ns-3 interpola linearmente tra l'ultimo waypoint valido e il prossimo.
+// Aggiungere waypoint da t=0 è quindi sicuro e garantisce che il modello
+// abbia sempre una posizione definita.
+// ===========================================================================
+void AssignGuestTrajectory(Ptr<Node> node, int guestId,
+                            double simTime, double speed,
+                            int scenary,
+                            double t_join, double t_leave,
+                            double step_sec)
+{
+    Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
+    if (!mob) {
+        std::cerr << "ERRORE: WaypointMobilityModel non trovato sul nodo ospite "
+                  << guestId << std::endl;
+        return;
     }
 
-    for (double t = 0.0; t <= simTime + step_sec; t += step_sec) 
-    {
-        Vector3d math_pos = trajFunc(t);
-        ns3::Vector ns3_pos(math_pos.x(), math_pos.y(), math_pos.z());
-        mob->AddWaypoint(Waypoint(Seconds(t), ns3_pos));
+    // totalBase = 8 per Scenary 1 (Fibonacci).
+    // Per altri scenari l'ospite usa comunque Fibonacci come orbita
+    // di inserimento — è la scelta più robusta geometricamente.
+    const int totalBase = 8;
+
+    TrajectoryFunc guestFunc = MakeGuestTrajectory(
+        guestId, t_join, t_leave, speed, totalBase);
+
+    // Aggiungiamo waypoint da t=0 così ns-3 ha sempre una posizione valida.
+    // Quelli prima di (t_join - APPROACH_DURATION) puntano all'entry position,
+    // quindi il drone risulta fermo fuori portata fino all'avvicinamento.
+    for (double t = 0.0; t <= simTime + step_sec; t += step_sec) {
+        Vector3d    p = guestFunc(t);
+        mob->AddWaypoint(Waypoint(Seconds(t), ns3::Vector(p.x(), p.y(), p.z())));
     }
+
+    std::cout << "[GuestTraj] ID=" << guestId
+              << " | avvicinamento @ t=" << (t_join - APPROACH_DURATION) << "s"
+              << " | orbita @ t="        << t_join                        << "s"
+              << (t_leave > 0
+                  ? " | allontanamento @ t=" + std::to_string(int(t_leave)) + "s"
+                  : " | orbita permanente")
+              << std::endl;
 }
