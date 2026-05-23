@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
         //double approach_time = std::max(0.0, jt - 15.0);
 
         // Scheduliamo l'accensione e l'inserimento ESATTAMENTE al tempo di join (jt)
-        Simulator::Schedule(
+Simulator::Schedule(
             Seconds(jt),
             [&mgr, &apps, jt, lt, targetId]() mutable
             {
@@ -192,43 +192,40 @@ int main(int argc, char *argv[])
                 if (newId == UINT32_MAX) return;
 
                 std::cout << ">>> JOIN: drone ID=" << newId
-                          << " si inserisce nell'orbita e accende la radio a t=" << jt << "s"
+                          << " si inserisce nell'orbita e richiede l'accesso TDMA a t=" << jt << "s"
                           << std::endl;
 
-                // 1. Accendiamo la radio!
-                apps[newId]->SetActive(true);
-
-                // 2. Aggiungiamo i collegamenti peer
+                // 1. Prepariamo la memoria peer per le distanze
                 for (uint32_t id : mgr.GetActiveIds()) {
                     if (id == newId) continue;
                     if (apps[id]) apps[id]->AddPeer(newId);
+                    if (apps[newId]) apps[newId]->AddPeer(id);
                 }
 
-                // 3. Aggiorniamo le mappe degli slot TDMA
-                {
-                    const std::vector<uint32_t>& activeIds = mgr.GetActiveIds();
-                    apps[newId]->InitSlotMap(activeIds);
-                    uint32_t newSlot = (uint32_t)activeIds.size() - 1;
-                    for (uint32_t id : activeIds) {
-                        if (id == newId) continue;
-                        if (apps[id]) apps[id]->AddPeerSlot(newId, newSlot);
+                // 2. Il nuovo drone "copia" la mappa del frame dal primo drone base disponibile
+                // Questo simula il fatto che il drone conosca quanto è "lungo" il treno (m_swarmSize)
+                std::map<uint32_t, uint32_t> currentMap;
+                for (uint32_t id : mgr.GetActiveIds()) {
+                    if (id != newId && apps[id]) {
+                        currentMap = apps[id]->GetSlotMap();
+                        break;
                     }
                 }
+                apps[newId]->SetSlotMap(currentMap);
 
-                // 4. Gestione dell'uscita (LEAVE) senza attese inutili
+                // 3. Eseguiamo l'Auto-Join Sincronizzato! (Il drone inizia ad ascoltare)
+                if (apps[newId]) apps[newId]->JoinSwarm(newId);
+
+                // 4. Gestione dell'uscita (LEAVE) schedulata...
                 if (lt > 0) {
                     uint32_t capturedId = newId; 
                     double leave_delay = std::max(0.0, lt - jt); 
                     
-                    // Al tempo lt, il drone inizia ad allontanarsi fisicamente
-                    // E avvisa l'applicazione di prepararsi a inviare il goodbye al prossimo slot utile
                     Simulator::Schedule(
                         Seconds(leave_delay),
                         [&mgr, &apps, capturedId, lt]() {
                             std::cout << ">>> LEAVE: drone ID=" << capturedId
-                                      << " inizia l'allontanamento fisico e richiede il distacco TDMA a t=" << lt << "s"
-                                      << std::endl;
-                            
+                                      << " richiede il distacco TDMA a t=" << lt << "s" << std::endl;
                             if (apps[capturedId]) apps[capturedId]->ScheduleLeave();
                             mgr.ReleaseId(capturedId);
                         });

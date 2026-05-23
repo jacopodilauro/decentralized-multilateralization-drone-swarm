@@ -41,6 +41,14 @@ public:
     
     double GetClockOffset() const { return m_clockOffset; }
 
+    uint32_t GetFirstAvailableSlot();
+    bool JoinSwarm(uint32_t newDroneId);
+    void ProcessIncomingPacket(uint32_t senderId, uint32_t slotId);
+    void FinalizeJoin();
+
+    std::map<uint32_t, uint32_t> GetSlotMap() const { return m_slotMap; }
+    void SetSlotMap(const std::map<uint32_t, uint32_t>& newMap) { m_slotMap = newMap; }
+
 private:
     bool m_isActive   = true;
     bool m_imLeaving  = false;   // flag "sto per andarmene", incluso nel prossimo TX
@@ -58,6 +66,10 @@ private:
     void ReorganizeSlots(uint32_t leavingDroneId);
     void PrintTerminalDashboard();
 
+
+bool m_isDiscovering = false;
+std::map<uint32_t, int> m_slotObservationCount;
+int m_observationCycles = 0;
 
     Eigen::Vector3d GetCurrentGpsPosition();
     uint32_t        GetVoteBitmask();

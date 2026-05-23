@@ -213,6 +213,19 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         uint32_t senderId = header.GetSenderId();
         if (senderId == m_id) continue;
 
+        // --- NUOVO: FASE DI DISCOVERY (ASCOLTO PASSIVO) ---
+        // Troviamo in quale slot ha trasmesso questo sender
+        uint32_t incomingSlot = UINT32_MAX;
+        if (m_slotMap.count(senderId)) incomingSlot = m_slotMap[senderId];
+        
+        // Se sto cercando di entrare (Auto-Join)
+        if (m_isDiscovering && incomingSlot != UINT32_MAX) {
+            ProcessIncomingPacket(senderId, incomingSlot); // Registro l'occupazione
+            continue; // E non faccio nient'altro per ora! Niente voti o EKF.
+        }
+
+        // --- 1. GESTIONE VOTAZIONI (GOSSIP) ---
+
         // --- 1. GESTIONE VOTAZIONI (GOSSIP) ---
         if (header.GetImLeaving()) {
             if (m_slotMap.count(senderId) && m_slotMap[senderId] != UINT32_MAX) { // <-- FIX
@@ -733,5 +746,68 @@ void UwbSecurityApp::PrintTerminalDashboard() {
     if (os.is_open()) {
         os << std::string(89, '=') << "\n\n";
         os.close();
+    }
+}
+    uint32_t UwbSecurityApp::GetFirstAvailableSlot() {
+    // Creiamo un array temporaneo per mappare quali slot sono occupati
+    std::vector<bool> slotUsed(m_swarmSize, false);
+    
+    for (const auto& pair : m_slotMap) {
+        if (pair.second != UINT32_MAX && pair.second < m_swarmSize) {
+            slotUsed[pair.second] = true;
+        }
+    }
+    
+    // Cerchiamo il primo "buco" (slot = false)
+    for (uint32_t i = 0; i < m_swarmSize; ++i) {
+        if (!slotUsed[i]) return i; 
+    }
+    
+    return UINT32_MAX; // Nessun buco disponibile, il frame è pieno!
+}
+
+bool UwbSecurityApp::JoinSwarm(uint32_t newDroneId) {
+    if (m_id == newDroneId) {
+        if (m_isActive) return false; // Sono già dentro
+
+        std::cout << ">>> [DISCOVERY] Drone " << m_id << " avvia l'ascolto passivo per 5 cicli." << std::endl;
+        
+        // Inizializzo i contatori a zero
+        m_slotObservationCount.clear();
+        for(uint32_t i=0; i<m_swarmSize; i++) m_slotObservationCount[i] = 0;
+        
+        m_isActive = true;       // Accendo il ricevitore (ReceivePacket)
+        m_isDiscovering = true;  // Ma non trasmetto! (SendUwbMessage bloccato)
+        
+        // Calcolo quanto tempo dura un'osservazione sicura (5 frame completi)
+        double observationTime = 5.0 * (m_swarmSize * m_slotDuration);
+        
+        // Schedulo il momento in cui deciderò quale slot prendere
+        Simulator::Schedule(Seconds(observationTime), &UwbSecurityApp::FinalizeJoin, this);
+        
+        return true;
+    } 
+    return false;
+}
+
+// In UwbSecurityApp.cpp - Logica di ascolto
+void UwbSecurityApp::ProcessIncomingPacket(uint32_t senderId, uint32_t slotId) {
+    if (m_isDiscovering) {
+        m_slotObservationCount[slotId]++;
+    }
+}
+
+// Quando scatta il timer dopo 5 cicli (es. dopo 5 * swarmSize * slotDuration)
+void UwbSecurityApp::FinalizeJoin() {
+    m_isDiscovering = false; // Stop ascolto
+    for (uint32_t i = 0; i < m_swarmSize; i++) {
+        // Se in 5 cicli non ho mai sentito nessuno in questo slot...
+        if (m_slotObservationCount[i] == 0) {
+            m_slotId = i;
+            m_slotMap[m_id] = i; // Aggiorno la mia mappa
+            m_isActive = true;   // Inizio a trasmettere!
+            std::cout << ">>> [AUTO-JOIN] Drone " << m_id << " ha scoperto lo Slot " << i << " libero." << std::endl;
+            return;
+        }
     }
 }
