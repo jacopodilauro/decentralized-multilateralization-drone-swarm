@@ -5,6 +5,32 @@ from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import os
 
+# ---> FUNZIONE AGGIUNTA QUI <---
+def disegna_geofence(ax):
+    # --- CUBO INTERNO (Il Geofence reale 70-130) ---
+    x0, x1 = 70, 130
+    y0, y1 = 70, 130
+    z0, z1 = 20, 80  # Altezza Z fissa per racchiudere lo sciame
+    
+    # Coordinate per disegnare un parallelepipedo
+    x = [x0, x1, x1, x0, x0, x0, x1, x1, x0, x0, x1, x1, x1, x1, x0, x0]
+    y = [y0, y0, y1, y1, y0, y0, y0, y1, y1, y0, y0, y0, y1, y1, y1, y1]
+    z = [z0, z0, z0, z0, z0, z1, z1, z1, z1, z1, z1, z0, z0, z1, z1, z0]
+    
+    ax.plot(x, y, z, color='red', linestyle='-', linewidth=1.5, label='Geofence Area (Core)')
+
+    # --- CUBO ESTERNO (La soglia di Trigger a 10m) ---
+    # Si allarga di 10 metri per ogni lato: X e Y vanno da 60 a 140
+    tx0, tx1 = 60, 140
+    ty0, ty1 = 60, 140
+    
+    tx = [tx0, tx1, tx1, tx0, tx0, tx0, tx1, tx1, tx0, tx0, tx1, tx1, tx1, tx1, tx0, tx0]
+    ty = [ty0, ty0, ty1, ty1, ty0, ty0, ty0, ty1, ty1, ty0, ty0, ty0, ty1, ty1, ty1, ty1]
+    
+    ax.plot(tx, ty, z, color='orange', linestyle='--', linewidth=1.0, alpha=0.7, label='Soglia Radio (10m)')
+# ---------------------------------
+
+
 def main():
     print("--- Avvio Dashboard Distry MLAT-26 ---")
     if len(sys.argv) > 1:
@@ -13,7 +39,6 @@ def main():
         numero = 8
  
     # 1. Ricerca automatica del file CSV
-    # Cerca nella cartella corrente o sale di un paio di livelli (root di ns-3)
     possible_paths = [
         'tdma_security_log.csv',
         '../tdma_security_log.csv',
@@ -56,7 +81,6 @@ def main():
     ax_3d.set_title("Ricostruzione Traiettoria 3D vs Spoofing")
     
     # Disegniamo le traiettorie degli ALTRI droni (Ancore e Ospiti)
-    # Le disegniamo prima in modo che rimangano visivamente "sullo sfondo"
     label_base_added = False
     label_guest_added = False
     label_fault_added = False
@@ -66,12 +90,9 @@ def main():
     for obs_id in observer_ids:
         df_anchor = df[df['sender_id'] == obs_id]
         if not df_anchor.empty:
-            # Filtro per evitare linee sovrapposte
             first_obs = df_anchor['observer_id'].iloc[0]
             df_anchor_unique = df_anchor[df_anchor['observer_id'] == first_obs]
             
-            # --- LOGICA PER DISTINGUERE BASE DA OSPITI (AGGIORNATA) ---
-            # I droni base hanno ID da 0 a 7. Dall'8 in poi sono gli ospiti!
             if obs_id < numero:
                 # È un DRONE BASE (presente dall'inizio)
                 lbl = 'Traiettoria Ancore Base' if not label_base_added else ""
@@ -81,10 +102,6 @@ def main():
 
                 last_time = df_anchor_unique['time'].max()
                 if last_time < global_max_time - 2.0:
-                    # Prendi la posizione a circa metà della vita del drone,
-                    # quando era sicuramente nell'orbita
-                    # mid_idx = len(df_anchor_unique) // 2
-                    #    Oppure: prendi il 75° percentile del tempo (nell'orbita, non in fuga)
                     t75 = df_anchor_unique['time'].quantile(0.75)
                     orbit_row = df_anchor_unique[df_anchor_unique['time'] <= t75].iloc[-1]
                     end_x = orbit_row['true_x']
@@ -99,11 +116,9 @@ def main():
             else:
                 # È un DRONE OSPITE (entrato a simulazione avviata)
                 lbl = 'Traiettoria Droni Ospiti (Join/Leave)' if not label_guest_added else ""
-                # Usiamo l'arancione, un po' più spesso e opaco per farlo risaltare
                 ax_3d.plot(df_anchor_unique['true_x'], df_anchor_unique['true_y'], df_anchor_unique['true_z'], 
                            color='orange', linewidth=1.5, alpha=0.8, label=lbl)
                 
-                # Pallino per marcare il punto esatto in cui inizia l'avvicinamento
                 start_x = df_anchor_unique['true_x'].iloc[0]
                 start_y = df_anchor_unique['true_y'].iloc[0]
                 start_z = df_anchor_unique['true_z'].iloc[0]
@@ -124,6 +139,9 @@ def main():
                
     ax_3d.plot(df_sample['rec_x'], df_sample['rec_y'], df_sample['rec_z'], 
                color='limegreen', linewidth=2, alpha=0.8, label='Posizione Recuperata (SwarmRaft)')
+
+    # ---> RICHIAMO DELLA FUNZIONE GEOFENCE QUI! <---
+    disegna_geofence(ax_3d)
 
     ax_3d.set_xlabel('X [m]')
     ax_3d.set_ylabel('Y [m]')
@@ -147,32 +165,20 @@ def main():
 
 
     # --- PANNELLO 3: Analisi del Consenso SwarmRaft (in basso a destra) ---
-    # --- PANNELLO 3: Analisi del Consenso SwarmRaft (in basso a destra) ---
     ax_vote = fig.add_subplot(2, 2, 4, sharex=ax_err)
     ax_vote.set_title("Consenso SwarmRaft & Allarmi")
     
-    # 1. Creiamo una tabella Pivot (Indice=tempo, Colonne=ID droni, Valori=Stato Allarme)
     pivot_alarms = df_target.pivot_table(index='time', columns='observer_id', values='alarm')
+    pivot_alarms = pivot_alarms.ffill().fillna(0)
 
-    # 2. Forward Fill: Se un pacchetto è perso (NaN), mantieni l'ultimo stato noto del drone
-    pivot_alarms = pivot_alarms.ffill().fillna(0) # I valori primissimi rimangono 0
-    
-    print("Osservatori unici:", df_target['observer_id'].unique())
-    print("Shape pivot:", pivot_alarms.shape)
-    print("Valori a t~202.347:")
-    print(pivot_alarms[pivot_alarms.index >= 202.3].head(3))
-
-    # 3. Calcoliamo i totali
     unique_times = pivot_alarms.index.to_numpy()
     votes_over_time = pivot_alarms.sum(axis=1).to_numpy()
         
     ax_vote.plot(unique_times, votes_over_time, color='purple', linewidth=2, label='N° di Allarmi Attivi')
     
-    # Linea di maggioranza (se gli allarmi superano la metà dei droni, il target è isolato)
     majority_threshold = num_observers / 2.0
     ax_vote.axhline(y=majority_threshold, color='red', linestyle='--', label='Soglia Maggioranza')
     
-    # Coloriamo l'area in cui l'attacco viene neutralizzato
     ax_vote.fill_between(unique_times, 0, num_observers, 
                          where=(np.array(votes_over_time) >= majority_threshold), 
                          color='red', alpha=0.15, label='Sistema in Protezione')

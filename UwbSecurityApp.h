@@ -129,6 +129,12 @@ std::set<uint32_t> m_myEvictionVotes;
 std::set<uint32_t> m_myLeaveVotes; 
 
 // =====================================================================
+
+bool m_inRectangle;          // Il bool che ti serve per sapere se sei "dentro" la zona attiva
+    ns3::EventId m_geofenceEvent; // Per gestire il loop temporale dell'applicazione
+    
+    void CheckGeofenceAutonomous();
 };
+    //bool imInRect = false;
 
 #endif

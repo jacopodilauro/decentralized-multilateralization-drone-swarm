@@ -86,6 +86,27 @@ public:
         }
     }
 
+// --- FUNZIONI PER IL GEOFENCE SPAZIALE IN TEMPO REALE ---
+
+    void ScheduleJoin(uint32_t droneId) {
+        std::cout << "\n[SwarmManager] GEOFENCE TRIGGER: Nodo " << droneId << " ENTRA nello sciame (Distanza < 10m)!" << std::endl;
+        
+        // Verifica che il drone non sia già tra quelli attivi per evitare duplicati
+        if (std::find(m_activeIds.begin(), m_activeIds.end(), droneId) == m_activeIds.end()) {
+            m_activeIds.push_back(droneId);
+            // Riordiniamo la lista per mantenere le matrici EKF allineate
+            std::sort(m_activeIds.begin(), m_activeIds.end()); 
+        }
+    }
+
+    void ScheduleLeave(uint32_t droneId) {
+        std::cout << "\n[SwarmManager] GEOFENCE TRIGGER: Nodo " << droneId << " ESCE dallo sciame (Distanza > 10m)!" << std::endl;
+        
+        // Sfruttiamo la tua funzione nativa ReleaseId per rimuoverlo dagli attivi
+        ReleaseId(droneId);
+    }
+
+
 private:
     uint32_t              m_nBase       = 0;
     uint32_t              m_totalSlots  = 0;

@@ -70,9 +70,12 @@ void UwbSecurityApp::StartApplication() {
     double firstTxTime = m_id * m_slotDuration;
     m_sendEvent = Simulator::Schedule(Seconds(firstTxTime),
                                        &UwbSecurityApp::SendUwbMessage, this);
+    m_inRectangle = false; 
+    //CheckGeofenceAutonomous();
 }
 
 void UwbSecurityApp::StopApplication() {
+    Simulator::Cancel(m_geofenceEvent);
     if (m_socket) m_socket->Close();
     Simulator::Cancel(m_sendEvent);
 }
@@ -152,7 +155,8 @@ void UwbSecurityApp::SendUwbMessage() {
         std::cout << ">>> GOODBYE TX: drone ID=" << m_id
                   << " ha inviato il messaggio <leave> a t="
                   << now << "s — radio off, attende consenso." << std::endl;
-        m_isActive     = false;
+        //m_isActive     = false;
+        this->SetActive(false);
         m_imLeaving   = false;
         m_pendingLeave = false;
     }
@@ -810,4 +814,50 @@ void UwbSecurityApp::FinalizeJoin() {
             return;
         }
     }
+}
+
+void UwbSecurityApp::CheckGeofenceAutonomous() {
+    // 1. Il drone recupera il PROPRIO modello di mobilità legato al nodo su cui l'app gira
+    Ptr<MobilityModel> mob = GetNode()->GetObject<MobilityModel>();
+    if (!mob) return;
+
+    ns3::Vector pos = mob->GetPosition();
+
+    // 2. Definizione del Rettangolo (Geofence)
+    double MIN_X = 70.0;  double MAX_X = 130.0;
+    double MIN_Y = 70.0;  double MAX_Y = 130.0;
+    double TRIGGER_DIST = 10.0; // Accendi la radio 10 metri prima
+
+    // 3. Calcolo geometrico della distanza dal bordo del rettangolo
+    double dx = std::max({0.0, MIN_X - pos.x, pos.x - MAX_X});
+    double dy = std::max({0.0, MIN_Y - pos.y, pos.y - MAX_Y});
+    double distanceToFence = std::sqrt(dx*dx + dy*dy);
+
+    // 4. Logica del ciclo di stato (Usa il tuo bool!)
+    bool isCloseEnough = (distanceToFence <= TRIGGER_DIST);
+
+    if (isCloseEnough && !m_inRectangle) {
+        std::cout << "[APP DI BORDO] Drone " << GetNode()->GetId() 
+                  << " a " << distanceToFence << "m dal Geofence. ACCENDO RADIO -> Invio JOIN!" << std::endl;
+        
+        // --- QUI INSERISCI LA TUA LOGICA COMPORTAMENTALE ---
+        // Ad esempio, chiami la funzione interna all'app per iniziare a trasmettere pacchetti UWB
+        // m_radioOn = true;
+        // InviaPacchettoJoin(); 
+
+        m_inRectangle = true; // Cambio lo stato del bool
+    } 
+    else if (!isCloseEnough && m_inRectangle) {
+        std::cout << "[APP DI BORDO] Drone " << GetNode()->GetId() 
+                  << " uscito dall'area di rispetto. SPENGO RADIO -> Invio LEAVE!" << std::endl;
+        
+        // --- QUI INSERISCI LA TUA LOGICA DI USCITA ---
+        // Smetti di trasmettere o invia la notifica di leave
+        // InviaPacchettoLeave();
+
+        m_inRectangle = false; // Ripristino il bool
+    }
+
+    // 5. Autorefresh: l'applicazione dice a ns-3 di richiamare questa funzione tra 0.1 secondi
+    m_geofenceEvent = Simulator::Schedule(Seconds(0.1), &UwbSecurityApp::CheckGeofenceAutonomous, this);
 }

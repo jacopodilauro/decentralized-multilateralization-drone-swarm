@@ -2,7 +2,7 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
 
-add_executable(distry_mlat26v3_pending
+add_executable(distry_mlat26v4_pending
     main.cpp
     UwbSecurityApp.cpp
     UwbHeader.cpp
@@ -11,7 +11,7 @@ add_executable(distry_mlat26v3_pending
     UWBChannel.cpp
 )
 
-target_link_libraries(distry_mlat26v3_pending
+target_link_libraries(distry_mlat26v4_pending
     ${libcore}
     ${libnetwork}
     ${libmobility}
