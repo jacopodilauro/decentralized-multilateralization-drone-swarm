@@ -21,6 +21,16 @@ using namespace ns3;
 
 class UwbSecurityApp : public Application {
 public:
+    
+    enum MacState {
+        STATE_OUT_OF_RANGE,
+        STATE_LISTENING,
+        STATE_JOINING,
+        STATE_ACTIVE
+    };
+
+    void SetNodeRole(bool isGuest);
+
     static TypeId GetTypeId(void);
 
     void SetActive(bool active);
@@ -50,6 +60,16 @@ public:
     void SetSlotMap(const std::map<uint32_t, uint32_t>& newMap) { m_slotMap = newMap; }
 
 private:
+
+    MacState m_macState;
+    bool m_isGuest;
+    uint32_t m_listenCounter;
+    int32_t m_chosenSlot;
+
+    std::map<uint32_t, bool> m_localSlotMap;
+    void EvaluateMacState();
+    EventId m_macStateEvent;
+
     bool m_isActive   = true;
     bool m_imLeaving  = false;   // flag "sto per andarmene", incluso nel prossimo TX
     bool m_pendingLeave = false; // leave schedulato, in attesa del prossimo slot TX
@@ -67,9 +87,9 @@ private:
     void PrintTerminalDashboard();
 
 
-bool m_isDiscovering = false;
+/*bool m_isDiscovering = false;
 std::map<uint32_t, int> m_slotObservationCount;
-int m_observationCycles = 0;
+int m_observationCycles = 0;*/
 
     Eigen::Vector3d GetCurrentGpsPosition();
     uint32_t        GetVoteBitmask();
@@ -129,11 +149,11 @@ std::set<uint32_t> m_myEvictionVotes;
 std::set<uint32_t> m_myLeaveVotes; 
 
 // =====================================================================
-
+/*
 bool m_inRectangle;          // Il bool che ti serve per sapere se sei "dentro" la zona attiva
     ns3::EventId m_geofenceEvent; // Per gestire il loop temporale dell'applicazione
     
-    void CheckGeofenceAutonomous();
+    void CheckGeofenceAutonomous();*/
 };
     //bool imInRect = false;
 

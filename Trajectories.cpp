@@ -14,11 +14,11 @@ const double ARENA_CENTER_Y = 100.0;
 const double ARENA_CENTER_Z_MEAN = 50.0; 
 
 const double CORE_SPHERE_RADIUS = 10.0; 
-const double ORBIT_RADIUS = 80.0; 
+const double ORBIT_RADIUS = 25.0; 
 const double ORBIT_SPEED = 0.2;    
 
 const double PATROL_SPEED = 10.0;   
-const double PATROL_LENGTH = 400.0; 
+const double PATROL_LENGTH = 50.0; 
 
 // Funzione Helper interna
 Vector GetFibonacciPoint(int i, int n, double radius) {
@@ -128,6 +128,12 @@ void AssignTrajectoryToNode(
 // ===========================================================================
 // Implementazione di AssignGuestTrajectory (Richiama la funzione base)
 // ===========================================================================
+// ===========================================================================
+// Implementazione di AssignGuestTrajectory (In-and-Out per Test Join/Leave)
+// ===========================================================================
+// ===========================================================================
+// Implementazione di AssignGuestTrajectory (Corretta: Volo Fluido)
+// ===========================================================================
 void AssignGuestTrajectory(
     ns3::Ptr<ns3::Node> node,
     int                 guestId,
@@ -138,7 +144,62 @@ void AssignGuestTrajectory(
     double              t_leave,
     double              step_sec
 ) {
-    // Passiamo un total_nodes alto (es. 50) per assicurarci che i Guest 
-    // vengano assegnati alle fasce esterne (Orbitanti/Pattugliatori)
-    AssignTrajectoryToNode(node, guestId, 50, simTime, speed, step_sec, scenary);
+    Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
+    if (!mob) return;
+
+    double angle = guestId * (2.0 * M_PI / 20.0); 
+    
+    // Punto di partenza: 100 metri di distanza dal centro
+    double start_radius = 100.0;
+    Vector startPos(ARENA_CENTER_X + start_radius * std::cos(angle),
+                    ARENA_CENTER_Y + start_radius * std::sin(angle),
+                    ARENA_CENTER_Z_MEAN);
+
+    Vector centerPos(ARENA_CENTER_X, ARENA_CENTER_Y, ARENA_CENTER_Z_MEAN);
+
+    // -------------------------------------------------------------
+    // FIX: Calcoliamo i punti esatti di aggancio e sgancio dall'orbita
+    // -------------------------------------------------------------
+    Vector orbitStartPos(centerPos.x + 15.0 * std::cos(angle),
+                         centerPos.y + 15.0 * std::sin(angle),
+                         centerPos.z);
+                         
+    // A t=150, il drone ha trascorso 100 secondi nell'orbita. L'angolo finale è:
+    double endStayTime = 150.0 - 50.0;
+    double endAngle = endStayTime * 0.5 + angle;
+    Vector orbitEndPos(centerPos.x + 15.0 * std::cos(endAngle),
+                       centerPos.y + 15.0 * std::sin(endAngle),
+                       centerPos.z);
+
+    for (double t = 0.0; t <= simTime; t += step_sec) {
+        Vector pos;
+        
+        // FASE 1 (0 - 50s): Avvicinamento fino al BORDO dell'orbita
+        if (t < 50.0) {
+            double progress = t / 50.0;
+            pos.x = startPos.x + (orbitStartPos.x - startPos.x) * progress;
+            pos.y = startPos.y + (orbitStartPos.y - startPos.y) * progress;
+            pos.z = startPos.z;
+        }
+        // FASE 2 (50 - 150s): Stazionamento (Gira in tondo morbidamente)
+        else if (t >= 50.0 && t <= 150.0) {
+            double stayTime = t - 50.0;
+            pos.x = centerPos.x + 15.0 * std::cos(stayTime * 0.5 + angle);
+            pos.y = centerPos.y + 15.0 * std::sin(stayTime * 0.5 + angle);
+            pos.z = centerPos.z;
+        }
+        // FASE 3 (150 - 200s): Allontanamento dal punto di SGANCIO dell'orbita
+        else if (t > 150.0 && t <= 200.0) {
+            double progress = (t - 150.0) / 50.0;
+            pos.x = orbitEndPos.x + (startPos.x - orbitEndPos.x) * progress;
+            pos.y = orbitEndPos.y + (startPos.y - orbitEndPos.y) * progress;
+            pos.z = orbitEndPos.z;
+        }
+        // FASE 4 (200s in poi): Lontani e Silenziosi
+        else {
+            pos = startPos;
+        }
+
+        mob->AddWaypoint(Waypoint(Seconds(t), pos));
+    }
 }

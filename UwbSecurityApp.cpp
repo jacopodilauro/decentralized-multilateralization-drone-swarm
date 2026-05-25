@@ -70,12 +70,16 @@ void UwbSecurityApp::StartApplication() {
     double firstTxTime = m_id * m_slotDuration;
     m_sendEvent = Simulator::Schedule(Seconds(firstTxTime),
                                        &UwbSecurityApp::SendUwbMessage, this);
-    m_inRectangle = false; 
-    //CheckGeofenceAutonomous();
+
+    // Se sono un drone ospite, avvio il timer vitale per esplorare la rete
+    if (m_isGuest) {
+        double frameDuration = m_swarmSize * m_slotDuration;
+        m_macStateEvent = Simulator::Schedule(Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
+    }
 }
 
 void UwbSecurityApp::StopApplication() {
-    Simulator::Cancel(m_geofenceEvent);
+    Simulator::Cancel(m_macStateEvent);
     if (m_socket) m_socket->Close();
     Simulator::Cancel(m_sendEvent);
 }
@@ -84,8 +88,22 @@ void UwbSecurityApp::StopApplication() {
 // TX: broadcast del proprio stato + range condivisi
 // ---------------------------------------------------------------------------
 void UwbSecurityApp::SendUwbMessage() {
+
     m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
                                        &UwbSecurityApp::SendUwbMessage, this);
+
+    if (!m_isActive) return;
+
+    // --- NUOVO FILTRO MAC STATE ---
+    if (m_isGuest) {
+        // Se sono fuori dal geofence o sto solo ascoltando, ho la "bocca cucita"
+        if (m_macState == STATE_OUT_OF_RANGE || m_macState == STATE_LISTENING) {
+            return; 
+        }
+        // Trasmetto SOLO se sono in JOINING (per dichiararmi) o in ACTIVE (regime)
+    }
+
+    if (m_slotMap.find(m_id) == m_slotMap.end() || m_slotMap[m_id] == UINT32_MAX) return;
 
     if (!m_isActive || m_slotMap[m_id] == UINT32_MAX) return; 
     
@@ -217,6 +235,63 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         uint32_t senderId = header.GetSenderId();
         if (senderId == m_id) continue;
 
+
+        // ==========================================================
+        // --- NUOVA LOGICA: GEOFENCE RADIO E SCOPERTA DECENTRATA ---
+        // ==========================================================
+        
+        /*// Simula la lettura del "Time of Flight" calcolando la distanza geometrica al volo
+        Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
+        Ptr<MobilityModel> senderMob = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
+        double distFisica = (myMob->GetPosition() - senderMob->GetPosition()).GetLength();
+        //________________________________*/
+
+        Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
+        ns3::Vector myPos = myMob->GetPosition();
+
+        // 1. Le coordinate assolute dell'area di missione (il cubo rosso)
+        double MIN_X = 70.0;  double MAX_X = 130.0;
+        double MIN_Y = 70.0;  double MAX_Y = 130.0;
+
+        // 2. Calcolo della distanza matematica dal bordo del cubo
+        // Nota: Se il drone si trova già DENTRO il cubo, la distanza calcolata sarà 0.0
+        double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
+        double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
+        double distanceToCube = std::sqrt(dx*dx + dy*dy);
+
+        // 1. IL GEOFENCE: Se sento per la prima volta un nodo a meno di 10m
+        if (m_isGuest && m_macState == STATE_OUT_OF_RANGE && distanceToCube/*distFisica*/ <= 10.0) {
+            std::cout << "\n>>> [GEOFENCE RF] Drone " << GetNode()->GetId() 
+                      << " capta segnale a " << distanceToCube/*distFisica*/ << "m. Entra in Ascolto Passivo." << std::endl;
+            m_macState = STATE_LISTENING;
+            m_listenCounter = 0;
+            m_localSlotMap.clear();
+        }
+
+        // 2. FASE DI ASCOLTO: Mappatura silenziosa
+        if (m_isGuest && m_macState == STATE_LISTENING) {
+            // Mappo l'ID di chi sta parlando
+            m_localSlotMap[senderId] = true; 
+            continue; // Fermo qui l'elaborazione. Non processo EKF né voto.
+        }
+
+        // 3. FASE DI CONTESA: Rilevamento collisioni
+        if (m_isGuest && m_macState == STATE_JOINING) {
+            if (senderId == (uint32_t)m_chosenSlot) {
+                std::cout << "[COLLISIONE!] Qualcun altro sta usando l'ID " << senderId << ". Backoff applicato.\n";
+                m_macState = STATE_LISTENING; // Ritorno in ascolto, ho perso lo slot
+                m_listenCounter = 0;
+                continue;
+            }
+        }
+
+        // 4. AGGIUNTA DINAMICA PER I DRONI BASE (Aggiornano la loro mappa)
+        if (m_slotMap.find(senderId) == m_slotMap.end() || m_slotMap[senderId] == UINT32_MAX) {
+            std::cout << ">>> [RETE] Il nodo " << m_id << " riconosce un nuovo membro attivo: Drone " << senderId << std::endl;
+            m_slotMap[senderId] = senderId; // Aggiunge il nuovo arrivato alla mappa TDMA
+        }
+        // ==========================================================
+/*
         // --- NUOVO: FASE DI DISCOVERY (ASCOLTO PASSIVO) ---
         // Troviamo in quale slot ha trasmesso questo sender
         uint32_t incomingSlot = UINT32_MAX;
@@ -226,7 +301,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         if (m_isDiscovering && incomingSlot != UINT32_MAX) {
             ProcessIncomingPacket(senderId, incomingSlot); // Registro l'occupazione
             continue; // E non faccio nient'altro per ora! Niente voti o EKF.
-        }
+        }*/
 
         // --- 1. GESTIONE VOTAZIONI (GOSSIP) ---
 
@@ -770,94 +845,87 @@ void UwbSecurityApp::PrintTerminalDashboard() {
     return UINT32_MAX; // Nessun buco disponibile, il frame è pieno!
 }
 
-bool UwbSecurityApp::JoinSwarm(uint32_t newDroneId) {
-    if (m_id == newDroneId) {
-        if (m_isActive) return false; // Sono già dentro
 
-        std::cout << ">>> [DISCOVERY] Drone " << m_id << " avvia l'ascolto passivo per 5 cicli." << std::endl;
-        
-        // Inizializzo i contatori a zero
-        m_slotObservationCount.clear();
-        for(uint32_t i=0; i<m_swarmSize; i++) m_slotObservationCount[i] = 0;
-        
-        m_isActive = true;       // Accendo il ricevitore (ReceivePacket)
-        m_isDiscovering = true;  // Ma non trasmetto! (SendUwbMessage bloccato)
-        
-        // Calcolo quanto tempo dura un'osservazione sicura (5 frame completi)
-        double observationTime = 5.0 * (m_swarmSize * m_slotDuration);
-        
-        // Schedulo il momento in cui deciderò quale slot prendere
-        Simulator::Schedule(Seconds(observationTime), &UwbSecurityApp::FinalizeJoin, this);
-        
-        return true;
-    } 
-    return false;
-}
-
-// In UwbSecurityApp.cpp - Logica di ascolto
-void UwbSecurityApp::ProcessIncomingPacket(uint32_t senderId, uint32_t slotId) {
-    if (m_isDiscovering) {
-        m_slotObservationCount[slotId]++;
+void UwbSecurityApp::SetNodeRole(bool isGuest) {
+    m_isGuest = isGuest;
+    if (isGuest) {
+        m_macState = STATE_OUT_OF_RANGE;
+        m_listenCounter = 0;
+        m_chosenSlot = -1;
+        m_isActive = true; // Radio accesa per poter "sentire" l'avvicinamento
+    } else {
+        m_macState = STATE_ACTIVE;
+        m_chosenSlot = m_id;
+        m_isActive = true;
     }
 }
 
-// Quando scatta il timer dopo 5 cicli (es. dopo 5 * swarmSize * slotDuration)
-void UwbSecurityApp::FinalizeJoin() {
-    m_isDiscovering = false; // Stop ascolto
-    for (uint32_t i = 0; i < m_swarmSize; i++) {
-        // Se in 5 cicli non ho mai sentito nessuno in questo slot...
-        if (m_slotObservationCount[i] == 0) {
-            m_slotId = i;
-            m_slotMap[m_id] = i; // Aggiorno la mia mappa
-            m_isActive = true;   // Inizio a trasmettere!
-            std::cout << ">>> [AUTO-JOIN] Drone " << m_id << " ha scoperto lo Slot " << i << " libero." << std::endl;
-            return;
+void UwbSecurityApp::EvaluateMacState() {
+    if (!m_isGuest) return;
+
+    double frameDuration = m_swarmSize * m_slotDuration;
+
+    // =================================================================
+    // --- NUOVO: CONTROLLO ISTERESI (USCITA VOLONTARIA A 14 METRI) ---
+    // =================================================================
+    if (m_macState != STATE_OUT_OF_RANGE) {
+        Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
+        ns3::Vector myPos = myMob->GetPosition();
+
+        double MIN_X = 70.0;  double MAX_X = 130.0;
+        double MIN_Y = 70.0;  double MAX_Y = 130.0;
+
+        double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
+        double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
+        double distanceToCube = std::sqrt(dx*dx + dy*dy);
+
+        // Se mi sono allontanato oltre 14 metri (Isteresi: 10 per entrare, 14 per uscire)
+        if (distanceToCube > 14.0) {
+            if (m_macState == STATE_ACTIVE && !m_pendingLeave) {
+                std::cout << "\n>>> [ISTERESI GEOFENCE] Drone " << m_id 
+                          << " ha superato i 14m dal cubo (" << distanceToCube 
+                          << "m). Inizio procedura di uscita volontaria (Graceful Leave)." << std::endl;
+                ScheduleLeave(); 
+            } else if (m_macState == STATE_LISTENING || m_macState == STATE_JOINING) {
+                // Se mi allontano mentre stavo solo origliando, abortisco tutto subito
+                std::cout << "\n>>> [ISTERESI] Drone " << m_id 
+                          << " si è allontanato durante il Join. Abortito." << std::endl;
+                m_macState = STATE_OUT_OF_RANGE;
+                m_listenCounter = 0;
+            }
         }
     }
-}
 
-void UwbSecurityApp::CheckGeofenceAutonomous() {
-    // 1. Il drone recupera il PROPRIO modello di mobilità legato al nodo su cui l'app gira
-    Ptr<MobilityModel> mob = GetNode()->GetObject<MobilityModel>();
-    if (!mob) return;
 
-    ns3::Vector pos = mob->GetPosition();
+    if (m_macState == STATE_LISTENING) {
+        m_listenCounter++;
+        if (m_listenCounter >= 3) { // Dopo aver ascoltato 3 cicli completi
+            m_chosenSlot = -1;
+            // Cerca il primo slot libero nella mappa locale
+            for (uint32_t i = 0; i < m_swarmSize; ++i) {
+                if (!m_localSlotMap[i]) {
+                    m_chosenSlot = i;
+                    break;
+                }
+            }
 
-    // 2. Definizione del Rettangolo (Geofence)
-    double MIN_X = 70.0;  double MAX_X = 130.0;
-    double MIN_Y = 70.0;  double MAX_Y = 130.0;
-    double TRIGGER_DIST = 10.0; // Accendi la radio 10 metri prima
-
-    // 3. Calcolo geometrico della distanza dal bordo del rettangolo
-    double dx = std::max({0.0, MIN_X - pos.x, pos.x - MAX_X});
-    double dy = std::max({0.0, MIN_Y - pos.y, pos.y - MAX_Y});
-    double distanceToFence = std::sqrt(dx*dx + dy*dy);
-
-    // 4. Logica del ciclo di stato (Usa il tuo bool!)
-    bool isCloseEnough = (distanceToFence <= TRIGGER_DIST);
-
-    if (isCloseEnough && !m_inRectangle) {
-        std::cout << "[APP DI BORDO] Drone " << GetNode()->GetId() 
-                  << " a " << distanceToFence << "m dal Geofence. ACCENDO RADIO -> Invio JOIN!" << std::endl;
-        
-        // --- QUI INSERISCI LA TUA LOGICA COMPORTAMENTALE ---
-        // Ad esempio, chiami la funzione interna all'app per iniziare a trasmettere pacchetti UWB
-        // m_radioOn = true;
-        // InviaPacchettoJoin(); 
-
-        m_inRectangle = true; // Cambio lo stato del bool
-    } 
-    else if (!isCloseEnough && m_inRectangle) {
-        std::cout << "[APP DI BORDO] Drone " << GetNode()->GetId() 
-                  << " uscito dall'area di rispetto. SPENGO RADIO -> Invio LEAVE!" << std::endl;
-        
-        // --- QUI INSERISCI LA TUA LOGICA DI USCITA ---
-        // Smetti di trasmettere o invia la notifica di leave
-        // InviaPacchettoLeave();
-
-        m_inRectangle = false; // Ripristino il bool
+            if (m_chosenSlot != -1) {
+                m_macState = STATE_JOINING;
+                m_slotId = m_chosenSlot;            // Rubo questo ID provvisoriamente
+                m_slotMap[m_id] = m_chosenSlot; // Mi inserisco nella mia stessa mappa
+                std::cout << "\n>>> [NODO GUEST] Mappatura completata. Tento il join rubando lo Slot ID: " << m_chosenSlot << std::endl;
+            } else {
+                std::cout << "[NODO GUEST] Il Frame TDMA è totalmente saturo! Rimango in ascolto...\n";
+                m_listenCounter = 0; 
+            }
+        }
+    } else if (m_macState == STATE_JOINING) {
+        // Se arrivo al ciclo successivo e sono ancora in JOINING (cioè nessuno mi ha sovrascritto in ReceivePacket)
+        // Significa che non ci sono state collisioni e il gruppo mi ha accettato!
+        m_macState = STATE_ACTIVE;
+        std::cout << ">>> [NODO " << m_id << "] Join confermato senza collisioni! Ora sono ACTIVE.\n" << std::endl;
     }
 
-    // 5. Autorefresh: l'applicazione dice a ns-3 di richiamare questa funzione tra 0.1 secondi
-    m_geofenceEvent = Simulator::Schedule(Seconds(0.1), &UwbSecurityApp::CheckGeofenceAutonomous, this);
+    // Ri-schedula il timer per il prossimo frame
+    m_macStateEvent = Simulator::Schedule(Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
 }

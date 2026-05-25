@@ -87,6 +87,26 @@ def main():
 
     global_max_time = df['time'].max()
     
+    try:
+        # Crea il percorso per ground_truth usando lo stesso percorso trovato per il csv principale
+        gt_path = csv_file.replace('tdma_security_log.csv', 'ground_truth.csv')
+        
+        df_gt = pd.read_csv(gt_path)
+        unique_nodes = df_gt['node_id'].unique()
+        
+        for node_id in unique_nodes:
+            # Filtriamo i dati per ogni singolo drone
+            df_node_gt = df_gt[df_gt['node_id'] == node_id]
+            
+            # Disegniamo la linea in grigio chiaro tratteggiato usando ax_3d
+            ax_3d.plot(df_node_gt['true_x'], 
+                       df_node_gt['true_y'], 
+                       df_node_gt['true_z'], 
+                       color='green', linestyle=':', alpha=0.3, linewidth=1.0)
+            
+    except FileNotFoundError:
+        print(f"Attenzione: {gt_path} non trovato. Salto le orbite fisiche.")
+    
     for obs_id in observer_ids:
         df_anchor = df[df['sender_id'] == obs_id]
         if not df_anchor.empty:
