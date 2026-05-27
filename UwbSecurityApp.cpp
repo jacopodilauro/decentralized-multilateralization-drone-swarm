@@ -7,6 +7,7 @@
 #include "ns3/node-list.h"
 #include "SimulationLogger.h"
 #include <cmath>
+#include <queue>
 
 NS_LOG_COMPONENT_DEFINE ("UwbSecurityApp");
 NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
@@ -124,11 +125,14 @@ void UwbSecurityApp::SendUwbMessage() {
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
     double localTime = now + m_clockOffset;
 
+    // 1. PRIMA dichiariamo l'oggetto header e i dati base
     UwbHeader header;
     header.SetSenderId(m_id);
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
+    header.SetImLeaving(m_imLeaving);
     
+    // Pulizia dei timeout per gli EKF vecchi
     for (auto it = m_lastKnownTime.begin(); it != m_lastKnownTime.end(); ++it) {
         uint32_t peerId = it->first;
         if (now - it->second > 2.0) {
@@ -138,17 +142,26 @@ void UwbSecurityApp::SendUwbMessage() {
         }
     }
 
-    std::vector<uint8_t> myAlarms(m_swarmSize, 0); 
+    // 2. NUOVA LOGICA: Creazione degli allarmi compressi (Bitset Dinamico)
+    uint32_t numBytes = (m_swarmSize + 7) / 8; 
+    std::vector<uint8_t> compressedAlarms(numBytes, 0); 
+
     for (const auto& [peerId, isAlarmed] : m_alarms) {
-        if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) { // <-- FIX applicato
+        if (isAlarmed && m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) {
             uint32_t peerSlot = m_slotMap[peerId];
-            if (peerSlot < myAlarms.size()) {
-                myAlarms[peerSlot] = isAlarmed ? 1 : 0;
+            
+            if (peerSlot < m_swarmSize) {
+                uint32_t byteIndex = peerSlot / 8; 
+                uint32_t bitIndex  = peerSlot % 8; 
+                
+                // Accende il bit corrispondente
+                compressedAlarms[byteIndex] |= (1 << bitIndex); 
             }
         }
     }
-    header.SetAlarmsList(myAlarms);
-    header.SetImLeaving(m_imLeaving);
+
+    // 3. Assegnamo gli allarmi compressi all'header
+    header.SetAlarmsList(compressedAlarms);
 
     // --- 2. PREPARAZIONE GOSSIP PER L'HEADER ---
     std::vector<uint32_t> leaveGossip;
@@ -163,12 +176,37 @@ void UwbSecurityApp::SendUwbMessage() {
     }
     header.SetGossipEvictions(evictGossip);
     
-    for (const auto& pair : m_slotMap) {
+    // tolgo temporaneamente la condivisione dei range per semplificare il debug, ma l'idea è che ogni drone condivida i range misurati verso gli altri peer attivi, così da avere più osservatori per il controllo incrociato e aumentare la resilienza contro i falsi positivi/negativi.
+    /*for (const auto& pair : m_slotMap) {
         uint32_t targetId = pair.first;
         if (targetId < m_myLastRanges.size()) {
             header.SetSharedRange(targetId, m_myLastRanges[targetId]);
         }
+    }*/
+    const size_t MAX_RANGES_TO_SHARE = 10;
+    std::priority_queue<std::pair<double, uint32_t>> maxHeap; // (range, targetId)
+    for (const auto& pair : m_slotMap) {
+        uint32_t targetId = pair.first;
+        if (targetId < m_myLastRanges.size()) {
+            double r = m_myLastRanges[targetId];
+            
+            if (r > 0.0) { 
+                maxHeap.push({r, targetId});
+                
+                if (maxHeap.size() > MAX_RANGES_TO_SHARE) {
+                    maxHeap.pop(); 
+                }
+            }
+        }
     }
+
+    while (!maxHeap.empty()) {
+        auto bestRange = maxHeap.top();
+        maxHeap.pop();
+        
+        header.SetSharedRange(bestRange.second, bestRange.first);
+    }
+
 
     Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
@@ -197,8 +235,10 @@ void UwbSecurityApp::SendUwbMessage() {
         }
         uint32_t quorum = (activeNodes > 2) ? ((activeNodes * 2 + 2) / 3) : activeNodes;
         
-        std::cout << "Nodi Attivi: " << activeNodes << " | Quorum Richiesto: " << quorum << std::endl;
-        
+// Richiama GetSerializedSize() sull'header per sapere quanto pesa in quel momento
+std::cout << "Nodi Attivi: " << activeNodes 
+          << " | Quorum Richiesto: " << quorum 
+          << " | Payload (Size): " << header.GetSerializedSize() << " byte" << std::endl;        
         if (m_pendingLeaves.empty()) {
             std::cout << "Leave Volontari: Nessuno in sospeso." << std::endl;
         } else {
@@ -363,14 +403,24 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         // --- 3. LOGICA DI EKF E ALARMS ---
         std::vector<uint8_t> rxAlarms = header.GetAlarmsList();
-        for (uint32_t j = 0; j < rxAlarms.size(); ++j) {
-            if (j >= m_swarmSize) break; 
         
-            bool vote = (rxAlarms[j] == 1);
-        
+        for (uint32_t j = 0; j < m_swarmSize; ++j) {
+            uint32_t byteIndex = j / 8;
+            uint32_t bitIndex  = j % 8;
+
+            // Controllo di sicurezza: se il mittente ha inviato meno byte del previsto, ci fermiamo
+            if (byteIndex >= rxAlarms.size()) break;
+
+            // Leggiamo se il bit è acceso o spento
+            bool vote = (rxAlarms[byteIndex] & (1 << bitIndex)) != 0;
+            
+            // Da qui in poi, la tua logica originale rimane IDENTICA:
             uint32_t targetId = UINT32_MAX;
             for (const auto& pair : m_slotMap) {
-                if (pair.second == j && pair.second != UINT32_MAX) { targetId = pair.first; break; }
+                if (pair.second == j && pair.second != UINT32_MAX) { 
+                    targetId = pair.first; 
+                    break; 
+                }
             }
 
             if (targetId != UINT32_MAX && targetId != m_id) {
