@@ -23,8 +23,6 @@ void EKF::Init(const Vector3d& init_pos) {
     m_Q = MatrixXd::Zero(7, 7);
     m_q_acc   = 0.5; 
     m_q_drift = 0.01;
-    //m_q_acc   = 0.05; 
-    //m_q_drift = 0.01;
 }
 
 void EKF::Predict(double dt) {

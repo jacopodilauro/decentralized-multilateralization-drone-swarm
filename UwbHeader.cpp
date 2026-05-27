@@ -16,7 +16,7 @@ TypeId UwbHeader::GetInstanceTypeId (void) const { return GetTypeId (); }
 UwbHeader::UwbHeader () : m_senderId(0), m_txTimestampPs(0), m_gpsX(0), m_gpsY(0), m_gpsZ(0), m_imLeaving(false) {
     m_sharedRanges.clear();
     m_gossipLeaves.clear();
-    m_alarmsList.clear(); // Aggiungiamo questo
+    m_alarmsList.clear();
 }
 UwbHeader::~UwbHeader () {}
 
@@ -31,7 +31,7 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += 1;                           
     size += (m_gossipLeaves.size() * 4); 
 
-    // --- NUOVO: Spazio per il Gossip delle Eviction (Guasti) ---
+    // Spazio per il Gossip delle Eviction (Guasti)
     size += 1;                              // 1 byte per la dimensione del vettore
     size += (m_gossipEvictions.size() * 4); // 4 byte per ogni ID uint32_t
 
@@ -95,7 +95,6 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     
     m_imLeaving = (start.ReadU8 () != 0);
     
-    // Leggiamo Gossip
     uint8_t gossipSize = start.ReadU8();
     m_gossipLeaves.clear();
     for(int i = 0; i < gossipSize; i++) {
@@ -108,14 +107,12 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
         m_gossipEvictions.push_back(start.ReadNtohU32());
     }
 
-    // Leggiamo Allarmi
     uint8_t alarmsSize = start.ReadU8();
     m_alarmsList.clear();
     for(int i = 0; i < alarmsSize; i++) {
         m_alarmsList.push_back(start.ReadU8());
     }
     
-    // Leggiamo Ranges
     uint32_t n_ranges = start.ReadNtohU32();
     m_sharedRanges.resize(n_ranges);
     for(uint32_t i = 0; i < n_ranges; i++) {

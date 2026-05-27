@@ -21,16 +21,11 @@ struct ChannelCondition {
 class UWBChannel : public Object
 {
 public:
-    static TypeId GetTypeId();
-    
     UWBChannel();
     virtual ~UWBChannel();
-    
-    ChannelCondition ComputeChannelCondition(
-        Vector3d tx_pos, 
-        Vector3d rx_pos,
-        double tx_power_dbm = 0.0
-    );
+
+    static TypeId GetTypeId();
+    ChannelCondition ComputeChannelCondition( Vector3d tx_pos, Vector3d rx_pos, double tx_power_dbm = 0.0);
     
     void SetEnvironment(std::string env_type); 
     void AddObstacle(Vector3d center, double radius); 

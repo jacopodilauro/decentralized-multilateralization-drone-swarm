@@ -9,15 +9,11 @@ NS_OBJECT_ENSURE_REGISTERED (UWBChannel);
 
 TypeId UWBChannel::GetTypeId()
 {
-    static TypeId tid = TypeId("UWBChannel")
-        .SetParent<Object>()
-        .SetGroupName("Custom")
-        .AddConstructor<UWBChannel>();
+    static TypeId tid = TypeId("UWBChannel").SetParent<Object>().SetGroupName("Custom").AddConstructor<UWBChannel>();
     return tid;
 }
 
-UWBChannel::UWBChannel()
-    : m_environment("outdoor")
+UWBChannel::UWBChannel() : m_environment("outdoor")
 {
     std::random_device rd;
     m_rng.seed(rd());
@@ -50,7 +46,7 @@ bool UWBChannel::DetermineLOS(Vector3d tx, Vector3d rx)
 
 double UWBChannel::ComputePathLoss(double distance_m, bool is_los) 
 {
-    double freq_ghz = 6.5; // Banda UWB tipica
+    double freq_ghz = 6.5; // Frequenza UWB tipica in GHz
     double fspl_db = 20 * std::log10(distance_m) + 
                      20 * std::log10(freq_ghz) + 
                      92.45;

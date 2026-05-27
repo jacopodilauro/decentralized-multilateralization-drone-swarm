@@ -71,8 +71,8 @@ private:
     EventId m_macStateEvent;
 
     bool m_isActive   = true;
-    bool m_imLeaving  = false;   // flag "sto per andarmene", incluso nel prossimo TX
-    bool m_pendingLeave = false; // leave schedulato, in attesa del prossimo slot TX
+    bool m_imLeaving  = false;
+    bool m_pendingLeave = false;
 
     virtual void StartApplication(void) override;
     virtual void StopApplication(void)  override;
@@ -85,11 +85,6 @@ private:
     void ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec);
     void ReorganizeSlots(uint32_t leavingDroneId);
     void PrintTerminalDashboard();
-
-
-/*bool m_isDiscovering = false;
-std::map<uint32_t, int> m_slotObservationCount;
-int m_observationCycles = 0;*/
 
     Eigen::Vector3d GetCurrentGpsPosition();
     uint32_t        GetVoteBitmask();
@@ -131,30 +126,14 @@ int m_observationCycles = 0;*/
     std::map<uint32_t, int>  m_okCounter;
 
     std::deque<uint32_t> m_recentLeaves;
-
-    // =====================================================================
-// --- NUOVE VARIABILI PER IL CONSENSO DINAMICO (LEAVE & EVICTION) ---
-// =====================================================================
-
-// Mappa: ID del drone che ha chiesto il Leave -> Elenco (Set) di chi ha approvato
-std::map<uint32_t, std::set<uint32_t>> m_pendingLeaves;
-
-// Mappa: ID del drone sospettato "Morto" -> Elenco (Set) di chi vota per cacciarlo
-std::map<uint32_t, std::set<uint32_t>> m_pendingEvictions;
-
-// Lista dei droni che IO considero inattivi (da comunicare agli altri)
-std::set<uint32_t> m_myEvictionVotes;
-
-// Lista dei droni che IO so voler uscire (da comunicare agli altri, sostituisce m_recentLeaves)
-std::set<uint32_t> m_myLeaveVotes; 
-
-// =====================================================================
-/*
-bool m_inRectangle;          // Il bool che ti serve per sapere se sei "dentro" la zona attiva
-    ns3::EventId m_geofenceEvent; // Per gestire il loop temporale dell'applicazione
-    
-    void CheckGeofenceAutonomous();*/
+    // Mappa: ID del drone che ha chiesto il Leave -> Elenco (Set) di chi ha approvato
+    std::map<uint32_t, std::set<uint32_t>> m_pendingLeaves;
+    // Mappa: ID del drone sospettato "Morto" -> Elenco (Set) di chi vota per cacciarlo
+    std::map<uint32_t, std::set<uint32_t>> m_pendingEvictions;
+    // Lista dei droni che IO considero inattivi (da comunicare agli altri)
+    std::set<uint32_t> m_myEvictionVotes;
+    // Lista dei droni che IO so voler uscire (da comunicare agli altri, sostituisce m_recentLeaves)
+    std::set<uint32_t> m_myLeaveVotes; 
 };
-    //bool imInRect = false;
 
 #endif

@@ -29,9 +29,7 @@ public:
     Eigen::VectorXd GetState()           const;
     Eigen::MatrixXd GetCovariance()      const;
     double          GetPositionStdDev()  const;
-
-    // Soglia adattiva per allarme
-    double GetMahalanobisDistance() const;
+    double          GetMahalanobisDistance() const;
 
 private:
     Eigen::VectorXd m_state;  
@@ -41,7 +39,6 @@ private:
     double m_q_acc   = 0.5;  
     double m_q_drift = 0.05;   
 
-    //ultima innovazione per Mahalanobis
     Eigen::VectorXd m_last_y;
     Eigen::MatrixXd m_last_S;
 };

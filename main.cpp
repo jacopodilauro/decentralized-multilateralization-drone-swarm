@@ -4,6 +4,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/node-list.h"
+#include "ns3/netanim-module.h"
 
 #include <fstream>
 #include <sstream>
@@ -24,6 +25,10 @@ NS_LOG_COMPONENT_DEFINE("DistryMlatMain");
 
 static void PrintProgress(double interval, double totalTime) {
     double now = Simulator::Now().GetSeconds();
+
+    if (now > totalTime) {
+        return; 
+    }
     std::cout << ">>> [Progresso] Simulazione a t = " << now 
               << " s (su " << totalTime << " s)..." << std::endl;
               
@@ -35,7 +40,6 @@ static void LogGroundTruth(std::ofstream* gtFile) {
 
     double now = Simulator::Now().GetSeconds();
     
-    // Scorre tutti i nodi fisici della simulazione
     for (NodeList::Iterator it = NodeList::Begin(); it != NodeList::End(); ++it) {
         Ptr<Node> node = *it;
         Ptr<MobilityModel> mob = node->GetObject<MobilityModel>();
@@ -44,9 +48,7 @@ static void LogGroundTruth(std::ofstream* gtFile) {
             *gtFile << now << "," << node->GetId() << "," 
                     << pos.x << "," << pos.y << "," << pos.z << "\n";
         }
-    }
-    
-    // Si auto-richiama ogni 0.5 secondi
+    }    
     Simulator::Schedule(Seconds(0.5), &LogGroundTruth, gtFile);
 }
 
@@ -59,7 +61,7 @@ int main(int argc, char *argv[])
     double   setSlot     = 0.005;
     double   setSpeed    = 2.5;
     int      setScenary  = 1;
-
+    int      netanim     = 1;
     std::string targetsId   = "0";
     std::string csvFileName = "tdma_security_log.csv";
 
@@ -73,11 +75,11 @@ int main(int argc, char *argv[])
     cmd.AddValue("setScenary",  "Scenario scelto",                   setScenary);
     cmd.AddValue("targetsId",   "ID target",                         targetsId);
     cmd.AddValue("csvName",     "File CSV",                          csvFileName);
+    cmd.AddValue("netanim",     "Abilita NetAnim",                   netanim);
     cmd.Parse(argc, argv);
 
     std::cout << "--- Start Simulation Distry MLAT-26 (Decentralized Edition) ---" << std::endl;
 
-    // Calcolo totale nodi (il frame TDMA avrà questa dimensione massima)
     uint32_t totalNodes = setnDrones + setnGuests; 
     std::cout << "Slot totali allocati nel Frame TDMA: " << totalNodes << std::endl;
 
@@ -130,14 +132,13 @@ int main(int argc, char *argv[])
         AssignGuestTrajectory(swarmNodes.Get(i), i, setSimTime, setSpeed, setScenary, 0.0, -1.0, 0.5);
     }
 
-    // --- SETUP APPLICAZIONI (NESSUN MANAGER CENTRALE) ---
     std::vector<Ptr<UwbSecurityApp>> apps(totalNodes, nullptr);
 
     // Setup Droni Base (Core)
     for (uint32_t i = 0; i < setnDrones; ++i) {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
         app->Setup(i, totalNodes, setSlot, channel, &csvFile);
-        app->SetNodeRole(false); // false = Non è ospite, è un Core node
+        app->SetNodeRole(false);
         swarmNodes.Get(i)->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
         app->SetStopTime(Seconds(setSimTime));
@@ -156,14 +157,13 @@ int main(int argc, char *argv[])
     for (uint32_t i = setnDrones; i < totalNodes; ++i) {
         Ptr<UwbSecurityApp> app = CreateObject<UwbSecurityApp>();
         app->Setup(i, totalNodes, setSlot, channel, &csvFile);
-        app->SetNodeRole(true); // true = È un Ospite, partirà in stato Fuori Range
+        app->SetNodeRole(true);
         swarmNodes.Get(i)->AddApplication(app);
         app->SetStartTime(Seconds(0.0));
         app->SetStopTime(Seconds(setSimTime));
         apps[i] = app;
     }
 
-    // Attacchi (Spoofing)
     Simulator::Schedule(Seconds(attackTime), [&apps, targetsId, totalNodes]() {
         std::vector<uint32_t> maliciousIds;
         std::stringstream ss(targetsId);
@@ -177,15 +177,34 @@ int main(int argc, char *argv[])
         }
     });
 
-
-    
-
     std::cout << ">>> Configurazione completata. Avvio ns-3..." << std::endl;
     Simulator::Schedule(Seconds(20.0), &PrintProgress, 20.0, setSimTime);
+    
+    AnimationInterface* anim = nullptr;
+
+    if(netanim) {
+        std::cout << ">>> Saving data in NetAnim..." << std::endl;
+        anim = new AnimationInterface("esperimento_swarm.xml");
+        anim->SetMaxPktsPerTraceFile(5000000);
+        
+        for (uint32_t i = 0; i < totalNodes; ++i) {
+            anim->UpdateNodeSize(i, 2.0, 2.0); 
+            if (i == 0) {
+                anim->UpdateNodeColor(i, 255, 0, 0);
+            } else if (i > 0 && i <= setnDrones) {
+                anim->UpdateNodeColor(i, 0, 0, 255);
+            } else {
+                anim->UpdateNodeColor(i, 255, 255, 0);
+            }
+        }   
+    }
+    std::cout << ">>> Running Simulation..." << std::endl;
     Simulator::Stop(Seconds(setSimTime + 1.0));
     Simulator::Run();
     Simulator::Destroy();
-
+    if (anim) {
+        delete anim;
+    }
     std::cout << "--- End. ---" << std::endl;
     return 0;
 }

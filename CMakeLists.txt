@@ -20,5 +20,6 @@ target_link_libraries(distry_mlat26v4-nomanager
     ${libwifi}
     ${libspectrum}
     ${libpropagation}
+    ${libnetanim}
     Eigen3::Eigen
 )

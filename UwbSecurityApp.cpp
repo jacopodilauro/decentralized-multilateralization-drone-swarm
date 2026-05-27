@@ -16,10 +16,9 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 // ---------------------------------------------------------------------------
 static constexpr double MAHAL_ALARM_THRESHOLD = 3.5;
 static constexpr double MAHAL_OK_THRESHOLD    = 2.0;
-// Campioni consecutivi necessari per alzare/abbassare l'allarme.
 static constexpr int    CONSECUTIVE_NEEDED    = 10;
 
-static constexpr double c = 299792458.0; // [m/s]
+static constexpr double c = 299792458.0;
 
 TypeId UwbSecurityApp::GetTypeId (void) {
     static TypeId tid = TypeId ("UwbSecurityApp")
@@ -71,7 +70,6 @@ void UwbSecurityApp::StartApplication() {
     m_sendEvent = Simulator::Schedule(Seconds(firstTxTime),
                                        &UwbSecurityApp::SendUwbMessage, this);
 
-    // Se sono un drone ospite, avvio il timer vitale per esplorare la rete
     if (m_isGuest) {
         double frameDuration = m_swarmSize * m_slotDuration;
         m_macStateEvent = Simulator::Schedule(Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
@@ -100,12 +98,11 @@ void UwbSecurityApp::SendUwbMessage() {
         if (m_macState == STATE_OUT_OF_RANGE || m_macState == STATE_LISTENING) {
             return; 
         }
-        // Trasmetto SOLO se sono in JOINING (per dichiararmi) o in ACTIVE (regime)
     }
 
     if (m_slotMap.find(m_id) == m_slotMap.end() || m_slotMap[m_id] == UINT32_MAX) return;
 
-    if (!m_isActive || m_slotMap[m_id] == UINT32_MAX) return; 
+    //if (!m_isActive || m_slotMap[m_id] == UINT32_MAX) return; 
     
     double now = Simulator::Now().GetSeconds();
     
@@ -132,6 +129,15 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
     
+    for (auto it = m_lastKnownTime.begin(); it != m_lastKnownTime.end(); ++it) {
+        uint32_t peerId = it->first;
+        if (now - it->second > 2.0) {
+            m_alarms[peerId] = false;     
+            m_alarmCounter[peerId] = 0;
+            m_ekfBank.erase(peerId);
+        }
+    }
+
     std::vector<uint8_t> myAlarms(m_swarmSize, 0); 
     for (const auto& [peerId, isAlarmed] : m_alarms) {
         if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) { // <-- FIX applicato
@@ -189,8 +195,6 @@ void UwbSecurityApp::SendUwbMessage() {
         for (const auto& pair : m_slotMap) {
             if (pair.second != UINT32_MAX) activeNodes++; 
         }
-        
-        // FIX: arrotondamento corretto per la maggioranza qualificata dei 2/3
         uint32_t quorum = (activeNodes > 2) ? ((activeNodes * 2 + 2) / 3) : activeNodes;
         
         std::cout << "Nodi Attivi: " << activeNodes << " | Quorum Richiesto: " << quorum << std::endl;
@@ -235,17 +239,6 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         uint32_t senderId = header.GetSenderId();
         if (senderId == m_id) continue;
 
-
-        // ==========================================================
-        // --- NUOVA LOGICA: GEOFENCE RADIO E SCOPERTA DECENTRATA ---
-        // ==========================================================
-        
-        /*// Simula la lettura del "Time of Flight" calcolando la distanza geometrica al volo
-        Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
-        Ptr<MobilityModel> senderMob = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
-        double distFisica = (myMob->GetPosition() - senderMob->GetPosition()).GetLength();
-        //________________________________*/
-
         Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
         ns3::Vector myPos = myMob->GetPosition();
 
@@ -254,7 +247,6 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         double MIN_Y = 70.0;  double MAX_Y = 130.0;
 
         // 2. Calcolo della distanza matematica dal bordo del cubo
-        // Nota: Se il drone si trova già DENTRO il cubo, la distanza calcolata sarà 0.0
         double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
         double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
         double distanceToCube = std::sqrt(dx*dx + dy*dy);
@@ -272,13 +264,18 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         if (m_isGuest && m_macState == STATE_LISTENING) {
             // Mappo l'ID di chi sta parlando
             m_localSlotMap[senderId] = true; 
-            continue; // Fermo qui l'elaborazione. Non processo EKF né voto.
+            continue;
+        }
+        // Trova lo slot usato dal mittente guardando la mappa
+        uint32_t senderSlot = UINT32_MAX;
+        if (m_slotMap.find(senderId) != m_slotMap.end()) {
+            senderSlot = m_slotMap[senderId];
         }
 
         // 3. FASE DI CONTESA: Rilevamento collisioni
         if (m_isGuest && m_macState == STATE_JOINING) {
             if (senderId == (uint32_t)m_chosenSlot) {
-                std::cout << "[COLLISIONE!] Qualcun altro sta usando l'ID " << senderId << ". Backoff applicato.\n";
+                std::cout << "[COLLISIONE!] Qualcun altro sta usando l'ID " << senderSlot << ". Backoff applicato.\n";
                 m_macState = STATE_LISTENING; // Ritorno in ascolto, ho perso lo slot
                 m_listenCounter = 0;
                 continue;
@@ -291,30 +288,16 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             m_slotMap[senderId] = senderId; // Aggiunge il nuovo arrivato alla mappa TDMA
         }
         // ==========================================================
-/*
-        // --- NUOVO: FASE DI DISCOVERY (ASCOLTO PASSIVO) ---
-        // Troviamo in quale slot ha trasmesso questo sender
-        uint32_t incomingSlot = UINT32_MAX;
-        if (m_slotMap.count(senderId)) incomingSlot = m_slotMap[senderId];
-        
-        // Se sto cercando di entrare (Auto-Join)
-        if (m_isDiscovering && incomingSlot != UINT32_MAX) {
-            ProcessIncomingPacket(senderId, incomingSlot); // Registro l'occupazione
-            continue; // E non faccio nient'altro per ora! Niente voti o EKF.
-        }*/
-
-        // --- 1. GESTIONE VOTAZIONI (GOSSIP) ---
-
         // --- 1. GESTIONE VOTAZIONI (GOSSIP) ---
         if (header.GetImLeaving()) {
-            if (m_slotMap.count(senderId) && m_slotMap[senderId] != UINT32_MAX) { // <-- FIX
+            if (m_slotMap.count(senderId) && m_slotMap[senderId] != UINT32_MAX) {
                 m_pendingLeaves[senderId].insert(senderId); 
                 m_pendingLeaves[senderId].insert(m_id);     
             }
         }
 
         for (uint32_t peerId : header.GetGossipLeaves()) {
-            if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) { // <-- FIX
+            if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) {
                 m_pendingLeaves[peerId].insert(senderId);
                 m_pendingLeaves[peerId].insert(m_id); 
             }
@@ -322,7 +305,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         
         for (uint32_t peerId : header.GetGossipEvictions()) {
             if (m_pendingLeaves.count(peerId)) continue; 
-            if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) { // <-- FIX
+            if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) {
                 m_pendingEvictions[peerId].insert(senderId);
                 if (m_lastKnownTime.count(peerId)) {
                     double frameDur = m_swarmSize * m_slotDuration;
@@ -340,7 +323,6 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         for (const auto& pair : m_slotMap) {
             if (pair.second != UINT32_MAX) activeNodes++;
         }
-        // FIX: arrotondamento corretto 
         uint32_t quorum = (activeNodes > 2) ? ((activeNodes * 2 + 2) / 3) : activeNodes;
 
         // A) Evictions 
@@ -429,9 +411,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
     }
 }
 
-void UwbSecurityApp::ProcessRanging(uint32_t senderId,
-                                      Eigen::Vector3d claimedGps,
-                                      double txTimeSec)
+void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec)
 {
     double currentTime = Simulator::Now().GetSeconds();
 
@@ -445,17 +425,18 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
 
     Ptr<Application> app = NodeList::GetNode(senderId)->GetApplication(0);
     Ptr<UwbSecurityApp> senderApp = DynamicCast<UwbSecurityApp>(app);
+
+    if (!senderApp) {
+        NS_LOG_WARN("Applicazione UwbSecurityApp non trovata sul nodo mittente.");
+        return; 
+    }
+
     double senderOffset = senderApp->GetClockOffset();
-    
     double trueGlobalTxTime = txTimeSec - senderOffset;
-    
     double distTrue = (myTruePos - senderTruePos).norm();
     double tof_true = distTrue / c;
-    
     double trueGlobalRxTime = trueGlobalTxTime + tof_true + (cond.ranging_error_m / c);
-    
     double measuredToa = trueGlobalRxTime + m_clockOffset;
-
     double myMeasuredRange = (measuredToa - txTimeSec) * c;
     m_myLastRanges[senderId]    = myMeasuredRange;
     m_myLastRangesLos[senderId] = cond.is_los;
@@ -512,9 +493,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
         peerData.anchor_pos    = peerGps;
         peerData.is_direct     = false;
         peerData.range         = m_networkRanges[k][senderId];
-        peerData.is_los        = m_networkRangesLos.count(k) ?
-                         (m_networkRangesLos[k].count(senderId) ?
-                          m_networkRangesLos[k][senderId] : true) : true;
+        peerData.is_los        = m_networkRangesLos.count(k) ? (m_networkRangesLos[k].count(senderId) ? m_networkRangesLos[k][senderId] : true) : true;
         inputData.push_back(peerData);
     }
 
@@ -534,8 +513,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
                          (euclError > adaptiveThreshold);
 
     double timeSinceInit = currentTime - m_ekfInitTime[senderId];
-        if (timeSinceInit < 2.0 * m_swarmSize * m_slotDuration * 10)
-            suspiciousNow = false;
+    if (timeSinceInit < 2.0 * m_swarmSize * m_slotDuration * 10)
+        suspiciousNow = false;
 
     if (currentTime < 15.0) suspiciousNow = false;
 
@@ -553,19 +532,17 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId,
         m_alarms[senderId] = false;
 
     uint32_t myVote = m_alarms[senderId] ? 1u : 0u;
-    uint32_t peerVoteCount = m_peerVotes.count(senderId)
-                             ? (uint32_t)m_peerVotes[senderId].size()
-                             : 0u;
+    uint32_t peerVoteCount = m_peerVotes.count(senderId) ? (uint32_t)m_peerVotes[senderId].size() : 0u;
     uint32_t totalVotes  = myVote + peerVoteCount;
     
     uint32_t activeObservers = 0;
     for (auto& [id, ranges] : m_networkRanges) {
-        if (m_slotMap.count(id) && m_slotMap[id] != UINT32_MAX) { // <-- Assicuriamoci che l'osservatore sia vivo
+        if (m_slotMap.count(id) && m_slotMap[id] != UINT32_MAX) {
             if (ranges.count(senderId) && currentTime - m_networkRangeTimes[id][senderId] < maxAge)
                 activeObservers++;
         }
     }
-    uint32_t threshold = std::max(2u, ((activeObservers * 2u + 2u) / 3u)); // <-- FIX quorum dinamico
+    uint32_t threshold = std::max(2u, ((activeObservers * 2u + 2u) / 3u));
     
     bool collectiveAlarm = (totalVotes >= threshold);
 
@@ -635,9 +612,9 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
 }
 
 uint32_t UwbSecurityApp::GetVoteBitmask() {
-    uint32_t mask = 0xFFFFFFFF;
+    uint64_t mask = 0xFFFFFFFFFFFFFFFF;
     for (auto const& pair : m_alarms)
-        if (pair.second) mask &= ~(1u << pair.first);
+        if (pair.second) mask &= ~(1ULL << pair.first);
     return mask;
 }
 
@@ -711,12 +688,12 @@ void UwbSecurityApp::InitSlotMap(const std::vector<uint32_t>& activeIds) {
     }
     if (m_slotMap.count(m_id))
         m_slotId = m_slotMap[m_id];
-    m_swarmSize = (uint32_t)m_slotMap.size();
+    //m_swarmSize = (uint32_t)m_slotMap.size();
 }
 
 void UwbSecurityApp::AddPeerSlot(uint32_t peerId, uint32_t slotId) {
     m_slotMap[peerId] = slotId;
-    m_swarmSize = (uint32_t)m_slotMap.size();
+    //m_swarmSize = (uint32_t)m_slotMap.size();
 }
 
 void UwbSecurityApp::ReorganizeSlots(uint32_t leavingDroneId) {
@@ -796,9 +773,8 @@ void UwbSecurityApp::PrintTerminalDashboard() {
         if (m_alarms.count(peerId) && m_alarms[peerId]) status = "SPOOFED";
 
         uint32_t positiveVotes = (status == "SPOOFED") ? 1 : 0;
-        
-        // Calcolo corretto dei votanti attivi per la dashboard
         uint32_t totalVoters = 0;
+
         for(const auto& p : m_slotMap) { if(p.second != UINT32_MAX) totalVoters++; }
         
         if (m_peerVotes.count(peerId)) positiveVotes += m_peerVotes[peerId].size();
@@ -842,7 +818,9 @@ void UwbSecurityApp::PrintTerminalDashboard() {
         if (!slotUsed[i]) return i; 
     }
     
-    return UINT32_MAX; // Nessun buco disponibile, il frame è pieno!
+    return UINT32_MAX; 
+    // NOTA: In questo scenario, se il frame è pieno, il drone guest rimarrà in ascolto finché non si libera uno slot.
+    // Da implementare eventualmente una logica di backoff o di attesa casuale per evitare che più droni guest si accavallino cercando di occupare lo stesso slot appena libero.
 }
 
 
@@ -852,7 +830,7 @@ void UwbSecurityApp::SetNodeRole(bool isGuest) {
         m_macState = STATE_OUT_OF_RANGE;
         m_listenCounter = 0;
         m_chosenSlot = -1;
-        m_isActive = true; // Radio accesa per poter "sentire" l'avvicinamento
+        m_isActive = true;
     } else {
         m_macState = STATE_ACTIVE;
         m_chosenSlot = m_id;
@@ -887,7 +865,6 @@ void UwbSecurityApp::EvaluateMacState() {
                           << "m). Inizio procedura di uscita volontaria (Graceful Leave)." << std::endl;
                 ScheduleLeave(); 
             } else if (m_macState == STATE_LISTENING || m_macState == STATE_JOINING) {
-                // Se mi allontano mentre stavo solo origliando, abortisco tutto subito
                 std::cout << "\n>>> [ISTERESI] Drone " << m_id 
                           << " si è allontanato durante il Join. Abortito." << std::endl;
                 m_macState = STATE_OUT_OF_RANGE;
@@ -899,9 +876,8 @@ void UwbSecurityApp::EvaluateMacState() {
 
     if (m_macState == STATE_LISTENING) {
         m_listenCounter++;
-        if (m_listenCounter >= 3) { // Dopo aver ascoltato 3 cicli completi
+        if (m_listenCounter >= 3) {
             m_chosenSlot = -1;
-            // Cerca il primo slot libero nella mappa locale
             for (uint32_t i = 0; i < m_swarmSize; ++i) {
                 if (!m_localSlotMap[i]) {
                     m_chosenSlot = i;
@@ -911,8 +887,8 @@ void UwbSecurityApp::EvaluateMacState() {
 
             if (m_chosenSlot != -1) {
                 m_macState = STATE_JOINING;
-                m_slotId = m_chosenSlot;            // Rubo questo ID provvisoriamente
-                m_slotMap[m_id] = m_chosenSlot; // Mi inserisco nella mia stessa mappa
+                m_slotId = m_chosenSlot;          
+                m_slotMap[m_id] = m_chosenSlot;
                 std::cout << "\n>>> [NODO GUEST] Mappatura completata. Tento il join rubando lo Slot ID: " << m_chosenSlot << std::endl;
             } else {
                 std::cout << "[NODO GUEST] Il Frame TDMA è totalmente saturo! Rimango in ascolto...\n";
@@ -920,8 +896,6 @@ void UwbSecurityApp::EvaluateMacState() {
             }
         }
     } else if (m_macState == STATE_JOINING) {
-        // Se arrivo al ciclo successivo e sono ancora in JOINING (cioè nessuno mi ha sovrascritto in ReceivePacket)
-        // Significa che non ci sono state collisioni e il gruppo mi ha accettato!
         m_macState = STATE_ACTIVE;
         std::cout << ">>> [NODO " << m_id << "] Join confermato senza collisioni! Ora sono ACTIVE.\n" << std::endl;
     }
