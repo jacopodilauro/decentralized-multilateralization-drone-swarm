@@ -5,6 +5,7 @@
 #include "ns3/wifi-module.h"
 #include "ns3/node-list.h"
 #include "ns3/netanim-module.h"
+#include "ns3/netsimulyzer-module.h"
 
 #include <fstream>
 #include <sstream>
@@ -22,6 +23,59 @@
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("DistryMlatMain");
+
+static void SampleAlarmSeries(
+    Ptr<netsimulyzer::XYSeries> series,
+    std::vector<Ptr<UwbSecurityApp>>* apps,
+    uint32_t setnDrones, double simTime)
+{
+    double now = Simulator::Now().GetSeconds();
+    if (now > simTime) return;
+
+    int total = 0;
+    for (uint32_t i = 0; i < setnDrones; ++i)
+        if ((*apps)[i]) total += (*apps)[i]->GetActiveAlarmCount();
+    series->Append(now, (double)total);
+
+    Simulator::Schedule(Seconds(1.0), &SampleAlarmSeries,
+                        series, apps, setnDrones, simTime);
+}
+
+static void SampleMahalSeries(
+    Ptr<netsimulyzer::XYSeries> series,
+    std::vector<Ptr<UwbSecurityApp>>* apps,
+    uint32_t setnDrones, double simTime)
+{
+    double now = Simulator::Now().GetSeconds();
+    if (now > simTime) return;
+
+    double drone0Mahal = 0.0;
+    
+    // Prendiamo il valore ESCLUSIVAMENTE dal Drone-0
+    if (!apps->empty() && (*apps)[0]) { 
+        drone0Mahal = (*apps)[0]->GetAverageMahalanobis(); 
+    }
+    
+    series->Append(now, drone0Mahal);
+
+    Simulator::Schedule(Seconds(1.0), &SampleMahalSeries,
+                        series, apps, setnDrones, simTime);
+}
+
+static void SampleActiveNodesSeries(
+    Ptr<netsimulyzer::XYSeries> series,
+    std::vector<Ptr<UwbSecurityApp>>* apps,
+    uint32_t nodeIdx, double simTime)
+{
+    double now = Simulator::Now().GetSeconds();
+    if (now > simTime) return;
+
+    int count = (*apps)[nodeIdx] ? (*apps)[nodeIdx]->GetActiveNodeCount() : 0;
+    series->Append(now, (double)count);
+
+    Simulator::Schedule(Seconds(1.0), &SampleActiveNodesSeries,
+                        series, apps, nodeIdx, simTime);
+}
 
 static void PrintProgress(double interval, double totalTime) {
     double now = Simulator::Now().GetSeconds();
@@ -62,6 +116,9 @@ int main(int argc, char *argv[])
     double   setSpeed    = 2.5;
     int      setScenary  = 1;
     int      netanim     = 1;
+    int      netsimulyzer= 1;
+    int      cube        = 0;
+
     std::string targetsId   = "0";
     std::string csvFileName = "tdma_security_log.csv";
 
@@ -76,6 +133,8 @@ int main(int argc, char *argv[])
     cmd.AddValue("targetsId",   "ID target",                         targetsId);
     cmd.AddValue("csvName",     "File CSV",                          csvFileName);
     cmd.AddValue("netanim",     "Abilita NetAnim",                   netanim);
+    cmd.AddValue("netsimulyzer", "Abilita Netsimulyzer",             netsimulyzer);
+    cmd.AddValue("cube",        "Abilita Cubo GEOFENCE",            cube);
     cmd.Parse(argc, argv);
 
     std::cout << "--- Start Simulation Distry MLAT-26 (Decentralized Edition) ---" << std::endl;
@@ -88,7 +147,7 @@ int main(int argc, char *argv[])
         csvFile << "time,sender_id,observer_id,"
                    "est_x,est_y,est_z,claim_x,claim_y,claim_z,"
                    "true_x,true_y,true_z,discrepancy,estimation_error,alarm,"
-                   "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes\n";
+                   "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes,clock_bias\n";
     }
 
     std::ofstream gtFile("ground_truth.csv");
@@ -123,6 +182,8 @@ int main(int argc, char *argv[])
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::WaypointMobilityModel");
     mobility.Install(swarmNodes);
+//---------------------------------------------------------------------//
+//                              ---- BODY ----                         //
 
     // Assegnazione Traiettorie
     for (uint32_t i = 0; i < setnDrones; ++i) {
@@ -180,8 +241,72 @@ int main(int argc, char *argv[])
     std::cout << ">>> Configurazione completata. Avvio ns-3..." << std::endl;
     Simulator::Schedule(Seconds(20.0), &PrintProgress, 20.0, setSimTime);
     
-    AnimationInterface* anim = nullptr;
+    /*
+     * NETSIMULYZER
+    */
+    Ptr<netsimulyzer::Orchestrator> orchestrator = nullptr;
+    if (netsimulyzer) {
+        orchestrator = CreateObject<netsimulyzer::Orchestrator>("swarm_visualization.json");
+        orchestrator->SetTimeStep(MilliSeconds(1000), ns3::Time::MS);
 
+        // --- Configurazione nodi 3D ---
+        for (uint32_t i = 0; i < totalNodes; ++i) {
+            auto nodeConfig = CreateObject<netsimulyzer::NodeConfiguration>(orchestrator);
+            nodeConfig->SetAttribute("Name", StringValue("Drone-" + std::to_string(i)));
+            
+            nodeConfig->SetAttribute("Model", StringValue("models/quadcopter_uav.obj"));
+            nodeConfig->SetAttribute("Scale", DoubleValue(4.0));
+
+            if (i == 0) {
+                // Master: rosso
+                nodeConfig->SetAttribute("BaseColor",
+                netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(255u, 0u, 0u)));         
+            } else if (i < setnDrones) {
+                // Core: blu
+                nodeConfig->SetAttribute("BaseColor",
+                    netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(0u, 0u, 255u)));
+            } else {
+                // Guest: giallo
+                nodeConfig->SetAttribute("BaseColor",
+                    netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(255u, 255u, 0u)));
+            }
+            swarmNodes.Get(i)->AggregateObject(nodeConfig);
+        }
+
+        // --- Serie 1: Allarmi attivi totali (rosso) ---
+// --- Serie 1: Allarmi attivi totali ---
+        auto alarmSeries = CreateObject<netsimulyzer::XYSeries>(orchestrator);
+        alarmSeries->SetAttribute("Name", StringValue("Active Alarms (total)"));
+        // RIGA COLORE ELIMINATA QUI
+        Simulator::Schedule(Seconds(0.0), &SampleAlarmSeries,
+                            alarmSeries, &apps, setnDrones, setSimTime);
+
+        // --- Serie 2: Mahalanobis media ---
+        auto mahalSeries = CreateObject<netsimulyzer::XYSeries>(orchestrator);
+        mahalSeries->SetAttribute("Name", StringValue("Avg Mahalanobis Distance, see by Drone-0"));
+        // RIGA COLORE ELIMINATA QUI
+        Simulator::Schedule(Seconds(0.0), &SampleMahalSeries,
+                            mahalSeries, &apps, setnDrones, setSimTime);
+
+        // --- Serie 3: Nodi attivi visti dal drone 0 ---
+        auto nodesSeries = CreateObject<netsimulyzer::XYSeries>(orchestrator);
+        nodesSeries->SetAttribute("Name", StringValue("Active Nodes (seen by Drone-0)"));
+        // RIGA COLORE ELIMINATA QUI
+        Simulator::Schedule(Seconds(0.0), &SampleActiveNodesSeries,
+                            nodesSeries, &apps, 0u, setSimTime);
+
+        if (cube) {
+        ns3::Rectangle limitiGeofence(70.0, 130.0, 70.0, 130.0);
+        auto geofence = CreateObject<netsimulyzer::RectangularArea>(orchestrator, limitiGeofence);
+        
+        geofence->SetAttribute("Name", StringValue("Area di Sicurezza"));
+        }
+    }
+
+    /*
+     * NETANIM
+    */
+    AnimationInterface* anim = nullptr;
     if(netanim) {
         std::cout << ">>> Saving data in NetAnim..." << std::endl;
         anim = new AnimationInterface("esperimento_swarm.xml");

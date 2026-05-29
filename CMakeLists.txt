@@ -2,7 +2,7 @@ find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
 
-add_executable(distry_mlat26v4-nomanager
+add_executable(distry_mlat26v4-netsimulyzer
     main.cpp
     UwbSecurityApp.cpp
     UwbHeader.cpp
@@ -11,7 +11,7 @@ add_executable(distry_mlat26v4-nomanager
     UWBChannel.cpp
 )
 
-target_link_libraries(distry_mlat26v4-nomanager
+target_link_libraries(distry_mlat26v4-netsimulyzer
     ${libcore}
     ${libnetwork}
     ${libmobility}
@@ -21,5 +21,6 @@ target_link_libraries(distry_mlat26v4-nomanager
     ${libspectrum}
     ${libpropagation}
     ${libnetanim}
+    ${libnetsimulyzer}
     Eigen3::Eigen
 )

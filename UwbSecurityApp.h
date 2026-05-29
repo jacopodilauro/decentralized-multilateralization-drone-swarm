@@ -59,6 +59,31 @@ public:
     std::map<uint32_t, uint32_t> GetSlotMap() const { return m_slotMap; }
     void SetSlotMap(const std::map<uint32_t, uint32_t>& newMap) { m_slotMap = newMap; }
 
+        // Quanti peer hanno allarme attivo su questo nodo
+    int GetActiveAlarmCount() const {
+        int count = 0;
+        for (const auto& pair : m_alarms)
+            if (pair.second) count++;
+        return count;
+    }
+
+    // Distanza di Mahalanobis media su tutti i peer tracciati
+    double GetAverageMahalanobis() const {
+        if (m_ekfBank.empty()) return 0.0;
+        double sum = 0.0;
+        for (const auto& pair : m_ekfBank)
+            sum += pair.second.GetMahalanobisDistance();
+        return sum / m_ekfBank.size();
+    }
+
+    // Quanti nodi attivi vede questo nodo
+    int GetActiveNodeCount() const {
+        int count = 0;
+        for (const auto& pair : m_slotMap)
+            if (pair.second != UINT32_MAX) count++;
+        return count;
+    }
+
 private:
 
     MacState m_macState;
@@ -67,6 +92,7 @@ private:
     int32_t m_chosenSlot;
 
     std::map<uint32_t, bool> m_localSlotMap;
+    std::set<uint32_t> m_localOccupiedSlots;
     void EvaluateMacState();
     EventId m_macStateEvent;
 
@@ -103,6 +129,8 @@ private:
 
     Ptr<Socket> m_socket;
     EventId     m_sendEvent;
+
+    void RevertColor();
 
     std::vector<double> m_myLastRanges;
     std::vector<bool>   m_myLastRangesLos;

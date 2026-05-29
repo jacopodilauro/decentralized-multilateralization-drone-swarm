@@ -6,6 +6,9 @@
 #include "ns3/simulator.h"
 #include "ns3/node-list.h"
 #include "SimulationLogger.h"
+
+#include "ns3/netsimulyzer-module.h"
+
 #include <cmath>
 #include <queue>
 
@@ -88,8 +91,44 @@ void UwbSecurityApp::StopApplication() {
 // ---------------------------------------------------------------------------
 void UwbSecurityApp::SendUwbMessage() {
 
-    m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
+    /*m_sendEvent = Simulator::Schedule(Seconds(m_swarmSize * m_slotDuration),
                                        &UwbSecurityApp::SendUwbMessage, this);
+    */
+    // NUOVO CODICE (Sincronizzazione del Tempo basata sul Consenso EKF)
+
+    double frameDuration = m_swarmSize * m_slotDuration;
+    double averageBias = 0.0;
+    int validPeers = 0;
+
+    // 1. Calcoliamo la media dello sfasamento (Clock Bias) rispetto allo sciame
+    for (auto& pair : m_ekfBank) {
+        uint32_t peerId = pair.first;
+        
+        // Sicurezza: Sincronizziamoci SOLO con i droni di cui ci fidiamo (non in allarme)
+        if (!m_alarms[peerId]) { 
+            averageBias += pair.second.GetClockBias();
+            validPeers++;
+        }
+    }
+
+    if (validPeers > 0) {
+        averageBias /= validPeers;
+    }
+
+    // 2. Applichiamo un Controllore Proporzionale (Smorzamento)
+    // Non correggiamo tutto l'errore in un colpo solo per evitare "rimbalzi" e instabilità.
+    // Correggiamo solo il 10% dell'errore (Kp = 0.1) ad ogni ciclo.
+    double Kp = 0.1; 
+    double correction = averageBias * Kp;
+
+    // 3. Sicurezza: Limitiamo la correzione massima (es. max 5% della durata di uno slot)
+    // Questo impedisce a un errore improvviso dell'EKF di sballare completamente il TDMA
+    double maxCorrection = m_slotDuration * 0.05;
+    correction = std::max(-maxCorrection, std::min(maxCorrection, correction));
+
+    // 4. Scheduliamo il prossimo invio con il tempo corretto!
+    double nextTxTime = frameDuration + correction;
+    m_sendEvent = Simulator::Schedule(Seconds(nextTxTime), &UwbSecurityApp::SendUwbMessage, this);
 
     if (!m_isActive) return;
 
@@ -108,7 +147,6 @@ void UwbSecurityApp::SendUwbMessage() {
     double now = Simulator::Now().GetSeconds();
     
     // --- 1. CONTROLLO INATTIVITÀ (TIMEOUT) ---
-    double frameDuration = m_swarmSize * m_slotDuration;
     double warmupTime    = 3.0 * frameDuration;
     double timeoutLimit  = std::max(5.0 * frameDuration, 2.0);
     if (now > warmupTime) {
@@ -212,6 +250,19 @@ void UwbSecurityApp::SendUwbMessage() {
     packet->AddHeader(header);
 
     m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
+    // --- INIZIO EFFETTO VISIVO TRASMISSIONE ---
+    Ptr<netsimulyzer::NodeConfiguration> nodeConfig = GetNode()->GetObject<netsimulyzer::NodeConfiguration>();
+    if (nodeConfig) {
+        // 1. Cambia il colore del drone (es. Verde fluo) mentre trasmette
+        nodeConfig->SetAttribute("BaseColor", netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(255u, 165u, 0u)));
+        
+        // 2. Genera l'onda radio (opzionale, ma consigliato insieme al cambio colore)
+        //nodeConfig->Transmit(Seconds(m_slotDuration), 100.0, netsimulyzer::Color3(0, 255, 0));
+
+        // 3. Schedula il ritorno al colore originale alla fine del suo slot
+        Simulator::Schedule(Seconds(m_slotDuration), &UwbSecurityApp::RevertColor, this);
+    }
+    // --- FINE EFFETTO VISIVO TRASMISSIONE ---
 
     if (m_pendingLeave) {
         std::cout << ">>> GOODBYE TX: drone ID=" << m_id
@@ -221,6 +272,9 @@ void UwbSecurityApp::SendUwbMessage() {
         this->SetActive(false);
         m_imLeaving   = false;
         m_pendingLeave = false;
+        m_macState     = STATE_OUT_OF_RANGE;  // aggiungi
+        m_localSlotMap.clear();               // aggiungi
+        m_localOccupiedSlots.clear(); 
     }
 
     // ==========================================================
@@ -268,7 +322,9 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
     Ptr<Packet> packet;
     Address from;
 
-    if (!m_isActive) {
+    bool canListen = m_isGuest && (m_macState == STATE_LISTENING);
+
+    if (!m_isActive && !canListen) {
         while ((packet = socket->RecvFrom(from))) {}
         return;
     }
@@ -298,12 +354,19 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             m_macState = STATE_LISTENING;
             m_listenCounter = 0;
             m_localSlotMap.clear();
+            m_localOccupiedSlots.clear();
         }
 
         // 2. FASE DI ASCOLTO: Mappatura silenziosa
         if (m_isGuest && m_macState == STATE_LISTENING) {
             // Mappo l'ID di chi sta parlando
-            m_localSlotMap[senderId] = true; 
+                m_localSlotMap[senderId] = true; 
+                if (m_slotMap.count(senderId) && m_slotMap[senderId] != UINT32_MAX) {
+                    m_localOccupiedSlots.insert(m_slotMap[senderId]);
+                }else {
+        // Fallback: per i base drone id == slot, quindi va bene come proxy
+                m_localOccupiedSlots.insert(senderId);
+                }
             continue;
         }
         // Trova lo slot usato dal mittente guardando la mappa
@@ -314,7 +377,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         // 3. FASE DI CONTESA: Rilevamento collisioni
         if (m_isGuest && m_macState == STATE_JOINING) {
-            if (senderId == (uint32_t)m_chosenSlot) {
+            if (m_slotMap.count(senderId) && m_slotMap[senderId] == (uint32_t)m_chosenSlot) {
                 std::cout << "[COLLISIONE!] Qualcun altro sta usando l'ID " << senderSlot << ". Backoff applicato.\n";
                 m_macState = STATE_LISTENING; // Ritorno in ascolto, ho perso lo slot
                 m_listenCounter = 0;
@@ -369,8 +432,12 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         for (auto it = m_pendingEvictions.begin(); it != m_pendingEvictions.end(); ) {
             if (m_slotMap.count(it->first) && m_slotMap[it->first] != UINT32_MAX) { // <-- FIX
                 if (it->second.size() >= quorum) {
-                    std::cout << ">>> [QUORUM EVICTION] t=" << Simulator::Now().GetSeconds() 
-                              << "s | Espulsione forzata Drone " << it->first << std::endl;
+                    std::cout << "\n=======================================================\n"
+                              << " [WARNING] ESPULSIONE ESEGUITA! \n"
+                              << " Drone Sospetto ID : " << it->first << "\n"
+                              << " Tempo Simulazione : " << Simulator::Now().GetSeconds() << "s\n"
+                              << " Quorum Raggiunto  : " << it->second.size() << " voti su " << quorum << " richiesti.\n"
+                              << "=======================================================\n" << std::endl;
                     RemovePeer(it->first);
                     ReorganizeSlots(it->first);
                     it = m_pendingEvictions.erase(it); 
@@ -491,7 +558,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     m_myLastRanges[senderId]    = myMeasuredRange;
     m_myLastRangesLos[senderId] = cond.is_los;
 
-    if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
+    /*if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
         m_ekfBank[senderId].Init(claimedGps);
         m_lastCalcTime[senderId]  = currentTime;
         m_ekfInitTime[senderId]   = currentTime;
@@ -499,7 +566,29 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         m_alarmCounter[senderId]  = 0;
         m_okCounter[senderId]     = 0;
         return; 
+    }*/
+   if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
+    // Prova a stimare la posizione iniziale dai range noti
+    Eigen::Vector3d initPos = claimedGps;
+    int validPeers = 0;
+    
+    for (const auto& [peerId, ranges] : m_networkRanges) {
+        if (ranges.count(senderId) && ranges.at(senderId) > 0.0 
+            && m_lastKnownGps.count(peerId)) {
+            initPos += m_lastKnownGps[peerId];
+            validPeers++;
+        }
     }
+    if (validPeers > 0) initPos /= (validPeers + 1); // media con claimedGps
+    
+    m_ekfBank[senderId].Init(initPos);
+    m_lastCalcTime[senderId]  = currentTime;
+    m_ekfInitTime[senderId]   = currentTime;
+    m_alarms[senderId]        = false;
+    m_alarmCounter[senderId]  = 0;
+    m_okCounter[senderId]     = 0;
+    return;
+}
 
     double dt = currentTime - m_lastCalcTime[senderId];
     if (dt <= 0) return;
@@ -592,8 +681,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
                 activeObservers++;
         }
     }
-    uint32_t threshold = std::max(2u, ((activeObservers * 2u + 2u) / 3u));
-    
+    //uint32_t threshold = /*std::max(2u, */((activeObservers * 2u + 2u) / 3u)/*)*/;
+    uint32_t threshold = (activeObservers > 2) ? ((activeObservers * 2u + 2u) / 3u) : activeObservers;
     bool collectiveAlarm = (totalVotes >= threshold);
 
     if (m_id == 1 && senderId == 0) {
@@ -611,7 +700,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
                   << " collective=" << collectiveAlarm
                   << std::endl;
     }
-
+    
     if (m_csv && m_csv->is_open()) {
         Eigen::Vector3d recoveredPos = collectiveAlarm ? estimatedPos : claimedGps;
 
@@ -619,17 +708,29 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         for (const auto& pair : m_slotMap) {
             if (pair.second != UINT32_MAX) currentActiveNodes++;
         }
+        
+        
+        double clockBias = m_ekfBank[senderId].GetClockBias();
 
         SimulationLogger::LogObservation(
             currentTime, senderId, m_id,
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
-            currentActiveNodes, peerVoteCount); 
+            /*currentActiveNodes*/activeObservers, peerVoteCount, clockBias); 
+
+            // --- INIZIO DEBUGGER ESTREMO ---
+        if (currentTime >= 238.0 && currentTime <= 239.0 && senderId == 0 && m_id == 1) {
+            std::cout << "\n[DEBUGGER C++] STO SCRIVENDO NEL CSV A t=" << currentTime << "s"
+                      << "\n -> Nodi fisici scritti (activeObservers): " << activeObservers
+                      << "\n -> Soglia scritta (threshold): " << threshold 
+                      << "\n------------------------------------------------\n" << std::endl;
+        }
+        // --- FINE DEBUGGER ESTREMO ---
 
         if (currentTime >= 200.0 && currentTime <= 210.0 && senderId == 0) {
             std::cout << "[DEBUG t=" << currentTime << "s] " 
                       << "Osservatore ID=" << m_id 
-                      << " | Nodi attivi visti: " << currentActiveNodes 
+                      << " | Nodi attivi visti: " << activeObservers 
                       << " | Voti ricevuti dai Peer: " << peerVoteCount 
                       << " | Mio Voto: " << myVote
                       << " | TOTALE: " << totalVotes << " (Soglia: " << threshold << ")" 
@@ -894,62 +995,117 @@ void UwbSecurityApp::EvaluateMacState() {
     double frameDuration = m_swarmSize * m_slotDuration;
 
     // =================================================================
-    // --- NUOVO: CONTROLLO ISTERESI (USCITA VOLONTARIA A 14 METRI) ---
+    // --- CONTROLLO ISTERESI E RIENTRO NEL GEOFENCE ---
     // =================================================================
+    Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
+    ns3::Vector myPos = myMob->GetPosition();
+
+    double MIN_X = 70.0;  double MAX_X = 130.0;
+    double MIN_Y = 70.0;  double MAX_Y = 130.0;
+
+    double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
+    double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
+    double distanceToCube = std::sqrt(dx*dx + dy*dy);
+
     if (m_macState != STATE_OUT_OF_RANGE) {
-        Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
-        ns3::Vector myPos = myMob->GetPosition();
-
-        double MIN_X = 70.0;  double MAX_X = 130.0;
-        double MIN_Y = 70.0;  double MAX_Y = 130.0;
-
-        double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
-        double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
-        double distanceToCube = std::sqrt(dx*dx + dy*dy);
-
-        // Se mi sono allontanato oltre 14 metri (Isteresi: 10 per entrare, 14 per uscire)
+        // ISTERESI DI USCITA: Se mi sono allontanato oltre 14 metri
         if (distanceToCube > 14.0) {
             if (m_macState == STATE_ACTIVE && !m_pendingLeave) {
-                std::cout << "\n>>> [ISTERESI GEOFENCE] Drone " << m_id 
-                          << " ha superato i 14m dal cubo (" << distanceToCube 
-                          << "m). Inizio procedura di uscita volontaria (Graceful Leave)." << std::endl;
-                ScheduleLeave(); 
+                std::cout << "\n>>> [ISTERESI GEOFENCE] Drone " << m_id
+                          << " ha superato i 14m. Inizio Graceful Leave." << std::endl;
+                ScheduleLeave();
             } else if (m_macState == STATE_LISTENING || m_macState == STATE_JOINING) {
-                std::cout << "\n>>> [ISTERESI] Drone " << m_id 
+                std::cout << "\n>>> [ISTERESI] Drone " << m_id
                           << " si è allontanato durante il Join. Abortito." << std::endl;
-                m_macState = STATE_OUT_OF_RANGE;
+                m_macState    = STATE_OUT_OF_RANGE;
                 m_listenCounter = 0;
+                m_localSlotMap.clear();
+                m_localOccupiedSlots.clear();
             }
+        }
+    } else {
+        // --- BUG 1 FIX: ISTERESI DI RIENTRO ---
+        // EvaluateMacState è l'unico timer che gira anche quando m_isActive=false,
+        // quindi è l'unico posto sicuro dove fare il wake-up.
+        // ReceivePacket non può farlo perché scarta tutto se m_isActive=false.
+        if (distanceToCube <= 10.0) {
+            std::cout << "\n>>> [GEOFENCE WAKE-UP] Drone " << m_id
+                      << " rientrato nel cubo (dist=" << distanceToCube
+                      << "m). Riaccendo la radio." << std::endl;
+            m_isActive      = true;
+            m_macState      = STATE_LISTENING;
+            m_listenCounter = 0;
+            m_localSlotMap.clear();
+            m_localOccupiedSlots.clear(); // BUG 4 FIX: pulizia set slot occupati
         }
     }
 
-
+    // =================================================================
+    // --- LOGICA DI JOINING ---
+    // =================================================================
     if (m_macState == STATE_LISTENING) {
         m_listenCounter++;
         if (m_listenCounter >= 3) {
+
+            // BUG 4 FIX: cerchiamo uno slot libero in m_localOccupiedSlots
+            // (che contiene slot reali), non in m_localSlotMap (che contiene ID).
             m_chosenSlot = -1;
             for (uint32_t i = 0; i < m_swarmSize; ++i) {
-                if (!m_localSlotMap[i]) {
+                if (m_localOccupiedSlots.find(i) == m_localOccupiedSlots.end()) {
                     m_chosenSlot = i;
                     break;
                 }
             }
 
             if (m_chosenSlot != -1) {
-                m_macState = STATE_JOINING;
-                m_slotId = m_chosenSlot;          
-                m_slotMap[m_id] = m_chosenSlot;
-                std::cout << "\n>>> [NODO GUEST] Mappatura completata. Tento il join rubando lo Slot ID: " << m_chosenSlot << std::endl;
+                m_macState       = STATE_JOINING;
+                m_slotId         = m_chosenSlot;
+                m_slotMap[m_id]  = m_chosenSlot;
+                std::cout << "\n>>> [NODO GUEST " << m_id << "] Slot " << m_chosenSlot
+                          << " libero trovato. Tento il join." << std::endl;
             } else {
-                std::cout << "[NODO GUEST] Il Frame TDMA è totalmente saturo! Rimango in ascolto...\n";
-                m_listenCounter = 0; 
+                std::cout << "[NODO GUEST " << m_id
+                          << "] Frame TDMA saturo! Rimango in ascolto...\n";
+                m_listenCounter = 0;
             }
         }
     } else if (m_macState == STATE_JOINING) {
+        // BUG 2 FIX: ricostruiamo la slotMap dai peer visti durante il listening.
+        // SetActive(false) aveva fatto m_slotMap.clear(), quindi senza questo
+        // il drone riparte con solo se stesso nella mappa e non vota mai.
+        for (const auto& [peerId, seen] : m_localSlotMap) {
+            if (seen && m_slotMap.find(peerId) == m_slotMap.end()) {
+                // I droni base usano id == slot; per i guest usiamo
+                // lo slot registrato in m_localOccupiedSlots se disponibile.
+                // Come proxy sicuro usiamo peerId (identico ai base drone).
+                m_slotMap[peerId] = peerId;
+            }
+        }
+
         m_macState = STATE_ACTIVE;
-        std::cout << ">>> [NODO " << m_id << "] Join confermato senza collisioni! Ora sono ACTIVE.\n" << std::endl;
+        std::cout << ">>> [NODO " << m_id << "] Join confermato! "
+                  << "Peer noti: " << m_slotMap.size()
+                  << ". Ora sono ACTIVE e voto." << std::endl;
     }
 
     // Ri-schedula il timer per il prossimo frame
-    m_macStateEvent = Simulator::Schedule(Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
+    m_macStateEvent = Simulator::Schedule(
+        Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
+}
+
+void UwbSecurityApp::RevertColor() {
+    Ptr<netsimulyzer::NodeConfiguration> nodeConfig = GetNode()->GetObject<netsimulyzer::NodeConfiguration>();
+    if (nodeConfig) {
+        // Ripristina il colore in base al ruolo del drone
+        if (m_id == 0) {
+            // Drone Master: Rosso
+            nodeConfig->SetAttribute("BaseColor", netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(255u, 0u, 0u)));
+        } else if (!m_isGuest) {
+            // Droni Core (Base): Blu
+            nodeConfig->SetAttribute("BaseColor", netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(0u, 0u, 255u)));
+        } else {
+            // Droni Guest: Giallo
+            nodeConfig->SetAttribute("BaseColor", netsimulyzer::OptionalValue<netsimulyzer::Color3>(netsimulyzer::Color3(255u, 255u, 0u)));
+        }
+    }
 }

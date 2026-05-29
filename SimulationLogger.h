@@ -19,7 +19,8 @@ public:
         uint32_t totalVotes, 
         uint32_t threshold,
         uint32_t activeNodes,
-        uint32_t peerVotes
+        uint32_t peerVotes,
+        double clockBias
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -31,7 +32,7 @@ public:
             << discrepancy << "," << estimation_error << "," << alarm << ","
             << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << ","
             << totalVotes << "," << threshold << "," 
-            << activeNodes << "," << peerVotes << "\n";
+            << activeNodes << "," << peerVotes << "," << clockBias << "\n";
     }
 };
 

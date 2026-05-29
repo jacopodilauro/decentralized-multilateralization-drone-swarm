@@ -93,7 +93,7 @@ void AssignTrajectoryToNode(
     }
 }
 
-void AssignGuestTrajectory(
+/*void AssignGuestTrajectory(
     ns3::Ptr<ns3::Node> node,
     int                 guestId,
     double              simTime,
@@ -143,6 +143,166 @@ void AssignGuestTrajectory(
         else {
             pos = startPos;
         }
+        mob->AddWaypoint(Waypoint(Seconds(t), pos));
+    }
+}*/
+
+/*void AssignGuestTrajectory(
+    ns3::Ptr<ns3::Node> node,
+    int                 guestId,
+    double              simTime,
+    double              speed,
+    int                 scenary,
+    double              t_join,
+    double              t_leave,
+    double              step_sec
+) {
+    Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
+    if (!mob) return;
+
+    double angle = guestId * (2.0 * M_PI / 20.0); 
+    
+    // Posizione "Fuori" dal Geofence (raggio 100) e "Dentro" (raggio 15)
+    Vector outPos(ARENA_CENTER_X + 100.0 * std::cos(angle),
+                  ARENA_CENTER_Y + 100.0 * std::sin(angle),
+                  ARENA_CENTER_Z_MEAN);
+                  
+    Vector inPos(ARENA_CENTER_X + 15.0 * std::cos(angle),
+                 ARENA_CENTER_Y + 15.0 * std::sin(angle),
+                 ARENA_CENTER_Z_MEAN);
+
+    for (double t = 0.0; t <= simTime; t += step_sec) {
+        Vector pos;
+        
+        // --- COREOGRAFIA MULTI-INGRESSO ---
+        if (t < 30.0) { pos = outPos; } // t: 0-30 fuori
+        else if (t <= 40.0) {           // t: 30-40 entrano
+            double p = (t - 30.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x)*p, outPos.y + (inPos.y - outPos.y)*p, ARENA_CENTER_Z_MEAN);
+        }
+        else if (t <= 70.0) { pos = inPos; } // t: 40-70 dentro (1° In)
+        else if (t <= 80.0) {                // t: 70-80 escono
+            double p = (t - 70.0) / 10.0;
+            pos = Vector(inPos.x + (outPos.x - inPos.x)*p, inPos.y + (outPos.y - inPos.y)*p, ARENA_CENTER_Z_MEAN);
+        }
+        else if (t <= 110.0) { pos = outPos; } // t: 80-110 fuori
+        else if (t <= 120.0) {                 // t: 110-120 ri-entrano
+            double p = (t - 110.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x)*p, outPos.y + (inPos.y - outPos.y)*p, ARENA_CENTER_Z_MEAN);
+        }
+        else if (t <= 150.0) { pos = inPos; }  // t: 120-150 dentro (2° In)
+        else if (t <= 160.0) {                 // t: 150-160 escono
+            double p = (t - 150.0) / 10.0;
+            pos = Vector(inPos.x + (outPos.x - inPos.x)*p, inPos.y + (outPos.y - inPos.y)*p, ARENA_CENTER_Z_MEAN);
+        }
+        else if (t <= 190.0) { pos = outPos; } // t: 160-190 fuori
+        else if (t <= 200.0) {                 // t: 190-200 entrano per l'attacco
+            double p = (t - 190.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x)*p, outPos.y + (inPos.y - outPos.y)*p, ARENA_CENTER_Z_MEAN);
+        }
+        else { pos = inPos; }                  // t: >200 rimangono dentro per votare durante l'attacco
+
+        mob->AddWaypoint(Waypoint(Seconds(t), pos));
+    }
+}*/
+
+void AssignGuestTrajectory(
+    ns3::Ptr<ns3::Node> node,
+    int                 guestId,
+    double              simTime,
+    double              speed,
+    int                 scenary,
+    double              t_join,
+    double              t_leave,
+    double              step_sec
+) {
+    Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
+    if (!mob) return;
+
+    double angle = guestId * (2.0 * M_PI / 20.0);
+
+    Vector outPos(ARENA_CENTER_X + 100.0 * std::cos(angle),
+                  ARENA_CENTER_Y + 100.0 * std::sin(angle),
+                  ARENA_CENTER_Z_MEAN);
+
+    Vector inPos(ARENA_CENTER_X + 15.0 * std::cos(angle),
+                 ARENA_CENTER_Y + 15.0 * std::sin(angle),
+                 ARENA_CENTER_Z_MEAN);
+
+    // Sfasamento individuale: ogni guest entra 0.5s dopo il precedente.
+    // guestId parte da 8 (primo guest), quindi (guestId % 12) va da 0 a 11
+    // => sfasamento totale tra primo e ultimo guest: 5.5s
+    double tOff = (guestId % 12) * 0.5;
+
+    for (double t = 0.0; t <= simTime; t += step_sec) {
+        Vector pos;
+
+        // tc è il tempo "percepito" da questo guest — shiftato di tOff
+        // t rimane il tempo reale del waypoint ns3
+        double tc = t - tOff;
+
+        // --- COREOGRAFIA MULTI-INGRESSO (identica a prima, su tc) ---
+
+        // t: 0-30 fuori (attesa iniziale)
+        if (tc < 30.0) {
+            pos = outPos;
+        }
+        // t: 30-40 entrano (1° ingresso)
+        else if (tc <= 40.0) {
+            double p = (tc - 30.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x) * p,
+                         outPos.y + (inPos.y - outPos.y) * p,
+                         ARENA_CENTER_Z_MEAN);
+        }
+        // t: 40-70 dentro (1° sosta)
+        else if (tc <= 70.0) {
+            pos = inPos;
+        }
+        // t: 70-80 escono (1° uscita)
+        else if (tc <= 80.0) {
+            double p = (tc - 70.0) / 10.0;
+            pos = Vector(inPos.x + (outPos.x - inPos.x) * p,
+                         inPos.y + (outPos.y - inPos.y) * p,
+                         ARENA_CENTER_Z_MEAN);
+        }
+        // t: 80-110 fuori
+        else if (tc <= 110.0) {
+            pos = outPos;
+        }
+        // t: 110-120 ri-entrano (2° ingresso)
+        else if (tc <= 120.0) {
+            double p = (tc - 110.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x) * p,
+                         outPos.y + (inPos.y - outPos.y) * p,
+                         ARENA_CENTER_Z_MEAN);
+        }
+        // t: 120-150 dentro (2° sosta)
+        else if (tc <= 150.0) {
+            pos = inPos;
+        }
+        // t: 150-160 escono (2° uscita)
+        else if (tc <= 160.0) {
+            double p = (tc - 150.0) / 10.0;
+            pos = Vector(inPos.x + (outPos.x - inPos.x) * p,
+                         inPos.y + (outPos.y - inPos.y) * p,
+                         ARENA_CENTER_Z_MEAN);
+        }
+        // t: 160-190 fuori
+        else if (tc <= 190.0) {
+            pos = outPos;
+        }
+        // t: 190-200 entrano per l'attacco (3° ingresso)
+        else if (tc <= 200.0) {
+            double p = (tc - 190.0) / 10.0;
+            pos = Vector(outPos.x + (inPos.x - outPos.x) * p,
+                         outPos.y + (inPos.y - outPos.y) * p,
+                         ARENA_CENTER_Z_MEAN);
+        }
+        // t: >200 rimangono dentro per votare durante l'attacco
+        else {
+            pos = inPos;
+        }
+
         mob->AddWaypoint(Waypoint(Seconds(t), pos));
     }
 }
