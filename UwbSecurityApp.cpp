@@ -18,7 +18,8 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 // ---------------------------------------------------------------------------
 // Soglia Mahalanobis per allarme spoofing.
 // ---------------------------------------------------------------------------
-static constexpr double MAHAL_ALARM_THRESHOLD = 3.5;
+//static constexpr double MAHAL_ALARM_THRESHOLD = 3.5;
+static constexpr double MAHAL_ALARM_THRESHOLD = 5;
 static constexpr double MAHAL_OK_THRESHOLD    = 2.0;
 static constexpr int    CONSECUTIVE_NEEDED    = 10;
 
@@ -646,7 +647,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     Eigen::Vector3d estimatedPos = m_ekfBank[senderId].GetPosition();
     double euclError = (estimatedPos - claimedGps).norm();
 
-    double adaptiveThreshold = std::max(2.0, 3.5 * posStd);
+    double adaptiveThreshold = std::max(5.0, 4 * posStd);
 
     bool suspiciousNow = (mahal  > MAHAL_ALARM_THRESHOLD) ||
                          (euclError > adaptiveThreshold);
