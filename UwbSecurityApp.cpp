@@ -634,6 +634,12 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         peerData.is_direct     = false;
         peerData.range         = m_networkRanges[k][senderId];
         peerData.is_los        = m_networkRangesLos.count(k) ? (m_networkRangesLos[k].count(senderId) ? m_networkRangesLos[k][senderId] : true) : true;
+        if (m_alarms.count(k) && m_alarms.at(k)) {
+            //peerData.is_los = false;
+            peerData.r_scale = 1.0;  
+        } else {
+            peerData.r_scale = 1.0;
+        }
         inputData.push_back(peerData);
     }
 
@@ -717,7 +723,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             currentTime, senderId, m_id,
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
-            /*currentActiveNodes*/activeObservers, peerVoteCount, clockBias); 
+            /*currentActiveNodes*/activeObservers, peerVoteCount, clockBias, posStd, distTrue); 
 
             // --- INIZIO DEBUGGER ESTREMO ---
         if (currentTime >= 238.0 && currentTime <= 239.0 && senderId == 0 && m_id == 1) {

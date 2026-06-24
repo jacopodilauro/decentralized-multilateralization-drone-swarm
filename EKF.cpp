@@ -88,6 +88,7 @@ void EKF::Update(const vector<Msmnt>& measurements) {
             H(i, 6) = 0.0;
             R(i, i) = m.is_los ? 1.5 : 4.0;
         }
+        R(i, i) *= m.r_scale;
     }
 
     VectorXd y = Z - h;

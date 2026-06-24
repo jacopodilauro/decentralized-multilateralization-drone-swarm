@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
         csvFile << "time,sender_id,observer_id,"
                    "est_x,est_y,est_z,claim_x,claim_y,claim_z,"
                    "true_x,true_y,true_z,discrepancy,estimation_error,alarm,"
-                   "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes,clock_bias\n";
+                   "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes,clock_bias,ekf_std_dev,true_distance\n";
     }
 
     std::ofstream gtFile("ground_truth.csv");
@@ -187,7 +187,7 @@ int main(int argc, char *argv[])
 
     // Assegnazione Traiettorie
     for (uint32_t i = 0; i < setnDrones; ++i) {
-        AssignTrajectoryToNode(swarmNodes.Get(i), i, totalNodes, setSimTime, setSpeed, 0.5, setScenary);
+        AssignTrajectoryToNode(swarmNodes.Get(i), i, setnDrones, setSimTime, setSpeed, 0.5, setScenary);
     }
     for (uint32_t i = setnDrones; i < totalNodes; ++i) {
         AssignGuestTrajectory(swarmNodes.Get(i), i, setSimTime, setSpeed, setScenary, 0.0, -1.0, 0.5);

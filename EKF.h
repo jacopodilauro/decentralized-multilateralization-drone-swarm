@@ -15,7 +15,8 @@ public:
         bool            is_direct;   
         bool            is_los;      
         double          range = 0.0;
-        Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true) {}
+        double          r_scale = 1.0;
+        Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true), r_scale(1.0) {}
     };
 
     EKF();
