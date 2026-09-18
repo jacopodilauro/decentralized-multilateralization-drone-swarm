@@ -1,11 +1,14 @@
 #include "UwbSecurityApp.h"
 #include "UwbHeader.h"
+#include "SimulationLogger.h"
+
 #include "ns3/log.h"
 #include "ns3/udp-socket-factory.h"
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
 #include "ns3/node-list.h"
-#include "SimulationLogger.h"
+#include "ns3/rng-seed-manager.h"
+
 #include <cmath>
 #include <queue>
 
@@ -47,7 +50,12 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
 
-    m_rng.seed(m_id + 12345);
+    uint64_t base = RngSeedManager::GetSeed() * 6364136223846793005ULL
+              + RngSeedManager::GetRun();
+    std::seed_seq seq{ (uint32_t)(base & 0xFFFFFFFFu),
+                   (uint32_t)(base >> 32),
+                   m_id };                            // tag: nodo
+m_rng.seed(seq);
     std::uniform_real_distribution<double> dist_offset(-1e-9, 1e-9);
     m_clockOffset = dist_offset(m_rng);
 }

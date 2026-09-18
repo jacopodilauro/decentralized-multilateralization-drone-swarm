@@ -1,4 +1,8 @@
 #include "UWBChannel.h"
+
+#include "ns3/rng-seed-manager.h"
+
+#include <random>
 #include <cmath>
 
 using namespace ns3;
@@ -15,8 +19,18 @@ TypeId UWBChannel::GetTypeId()
 
 UWBChannel::UWBChannel() : m_environment("outdoor")
 {
-    std::random_device rd;
-    m_rng.seed(rd());
+    uint64_t base = RngSeedManager::GetSeed() * 6364136223846793005ULL
+                  + RngSeedManager::GetRun();
+    std::seed_seq seq{ (uint32_t)(base & 0xFFFFFFFFu),
+                       (uint32_t)(base >> 32),
+                       0xC4A11EEDu };                 
+    m_rng.seed(seq);
+}
+
+void UWBChannel::SetSeed(uint64_t seed)
+{
+    std::seed_seq seq{ (uint32_t)(seed & 0xFFFFFFFFu), (uint32_t)(seed >> 32) };
+    m_rng.seed(seq);
 }
 
 UWBChannel::~UWBChannel() {}
