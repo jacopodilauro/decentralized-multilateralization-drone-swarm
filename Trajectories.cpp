@@ -15,6 +15,9 @@ const double CORE_SPHERE_RADIUS = 10.0;
 const double ORBIT_RADIUS = 25.0; 
 const double ORBIT_SPEED = 0.2;    
 
+const double CORE_ROT_SPEED = 0.10;   // rad/s, rotazione rigida della formazione
+const double CORE_BOB_AMP   = 12.0;   // m, oscillazione verticale sfasata per nodo
+
 const double PATROL_SPEED = 10.0;   
 const double PATROL_LENGTH = 50.0; 
 
@@ -56,7 +59,16 @@ void AssignTrajectoryToNode(
         // 2. Sciame Core (Dinamico da 1-num_core)
         else if (id <= num_core) {
             Vector offset = GetFibonacciPoint(id - 1, num_core, CORE_SPHERE_RADIUS);
-            pos = Vector(ARENA_CENTER_X + offset.x, ARENA_CENTER_Y + offset.y, ARENA_CENTER_Z_MEAN + offset.z);
+
+            double a  = CORE_ROT_SPEED * t;
+            double ca = std::cos(a), sa = std::sin(a);
+            double rx = offset.x * ca - offset.y * sa;     // rotazione rigida attorno a z
+            double ry = offset.x * sa + offset.y * ca;
+            double bob = CORE_BOB_AMP * std::sin(a + (id * 2.0 * M_PI / std::max(1, num_core)));
+
+            pos = Vector(ARENA_CENTER_X + rx,
+                        ARENA_CENTER_Y + ry,
+                        ARENA_CENTER_Z_MEAN + offset.z + bob);
         }
         // 3. Orbitanti "Atomo" (num_orbiters)
         else if (id <= num_core + num_orbiters) {

@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 
     // Assegnazione Traiettorie
     for (uint32_t i = 0; i < setnDrones; ++i) {
-        AssignTrajectoryToNode(swarmNodes.Get(i), i, totalNodes, setSimTime, setSpeed, 0.5, setScenary);
+        AssignTrajectoryToNode(swarmNodes.Get(i), i, setnDrones, setSimTime, setSpeed, 0.5, setScenary);
     }
     for (uint32_t i = setnDrones; i < totalNodes; ++i) {
         AssignGuestTrajectory(swarmNodes.Get(i), i, setSimTime, setSpeed, setScenary, 0.0, -1.0, 0.5);
