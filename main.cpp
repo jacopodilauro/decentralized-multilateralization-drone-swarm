@@ -173,12 +173,15 @@ int main(int argc, char *argv[])
         apps[i] = app;
     }
 
-    Simulator::Schedule(Seconds(attackTime), [&apps, targetsId, totalNodes]() {
-        std::vector<uint32_t> maliciousIds;
+    // ID dei nodi attaccanti, letti una volta sola: servono all'attacco e ai colori di NetAnim
+    std::vector<uint32_t> maliciousIds;
+    {
         std::stringstream ss(targetsId);
         std::string item;
         while (std::getline(ss, item, ',')) maliciousIds.push_back(std::stoi(item));
+    }
 
+    Simulator::Schedule(Seconds(attackTime), [&apps, maliciousIds, totalNodes]() {
         for (uint32_t id : maliciousIds) {
             if (id < totalNodes && apps[id]) {
                 apps[id]->SetMalicious(true);
@@ -196,16 +199,19 @@ int main(int argc, char *argv[])
         anim = new AnimationInterface("esperimento_swarm.xml");
         anim->SetMaxPktsPerTraceFile(5000000);
         
+        // Rosso = attaccanti (--targetsId), blu = altri droni base (ID 0..setnDrones-1),
+        // giallo = ospiti (ID setnDrones..totalNodes-1)
         for (uint32_t i = 0; i < totalNodes; ++i) {
-            anim->UpdateNodeSize(i, 2.0, 2.0); 
-            if (i == 0) {
+            anim->UpdateNodeSize(i, 2.0, 2.0);
+            bool isAttacker = std::find(maliciousIds.begin(), maliciousIds.end(), i) != maliciousIds.end();
+            if (isAttacker) {
                 anim->UpdateNodeColor(i, 255, 0, 0);
-            } else if (i > 0 && i <= setnDrones) {
+            } else if (i < setnDrones) {
                 anim->UpdateNodeColor(i, 0, 0, 255);
             } else {
                 anim->UpdateNodeColor(i, 255, 255, 0);
             }
-        }   
+        }
     }
     std::cout << ">>> Running Simulation..." << std::endl;
     Simulator::Stop(Seconds(setSimTime + 1.0));

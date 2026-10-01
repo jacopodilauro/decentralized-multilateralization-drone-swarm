@@ -45,6 +45,10 @@ Con la build nella cartella `scratch/` di ns-3, l'eseguibile si trova con:
 
 Proprietà verificata in Fase 0: **stesso seed ⇒ output identico bit per bit.**
 
+Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento numerico (1 riga su
+608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
+esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
+
 Riferimento corrente: `reference/step1.1_seed1.json` (1 seed) e `reference/step1.1_seed1-3.json` (3 seed).
 Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
 
@@ -71,7 +75,8 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [x] Variabili non inizializzate (`m_isGuest`, `m_macState`, `m_listenCounter`, `m_chosenSlot`, `m_clockOffset`);
         rimossi `m_voteBitmask`, `m_recentLeaves`
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
-  - [ ] Colori NetAnim: `i <= setnDrones` colora di blu anche il primo ospite
+  - [x] Colori NetAnim: rosso = attaccanti reali (`--targetsId`), blu = base, giallo = ospiti
+        (prima il drone 8 era blu e il rosso era sempre sul nodo 0)
   - [ ] L'header dei range condivisi cresce con l'ID massimo invece che con il numero di range (10)
   - [x] Codice morto rimosso (`PrintTerminalDashboard`, `GetVoteBitmask`, `AddPeer`, `AddPeerSlot`,
         `GetFirstAvailableSlot`, dichiarazioni senza corpo); stampe di debug a istanti fissi sostituite
@@ -104,3 +109,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 0 | – | Ambiente di Jacopo (ns-3-dev) identico a ns-3.44: 26/26 metriche uguali |
 | 2026-09-30 | 1.1 | log individual votes | Falsi voti individuali su onesti post-attacco: 58,2 % (seed 1–3). L'avvelenamento delle ancore agisce già nel singolo EKF |
 | 2026-09-30 | 1.2 | clean up dead code, add --verbose | CSV identico byte per byte; output da ~5.000 a 212 righe (livello 1) |
+| 2026-09-30 | 1.3 | fix netanim colors | Colori corretti; scoperto che NetAnim altera il CSV a livello di arrotondamento |
