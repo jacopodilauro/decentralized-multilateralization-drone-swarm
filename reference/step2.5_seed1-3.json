@@ -1,0 +1,157 @@
+{
+  "n_seed": 3,
+  "errore_ekf_base_mediana_m": {
+    "media": 0.3855633333333333,
+    "std": 0.032039701657995086,
+    "min": 0.352043,
+    "max": 0.415882,
+    "n": 3
+  },
+  "errore_ekf_base_p95_m": {
+    "media": 1.010367183333333,
+    "std": 0.053691327420271745,
+    "min": 0.9508385499999997,
+    "max": 1.0551319999999995,
+    "n": 3
+  },
+  "errore_ekf_onesti_post_mediana_m": {
+    "media": 0.5036846666666667,
+    "std": 0.06331661684410608,
+    "min": 0.432836,
+    "max": 0.5547405000000001,
+    "n": 3
+  },
+  "errore_ekf_onesti_post_p95_m": {
+    "media": 0.9852013,
+    "std": 0.09152707219343645,
+    "min": 0.8891400499999997,
+    "max": 1.0713945,
+    "n": 3
+  },
+  "errore_ekf_ospiti_mediana_m": {
+    "media": 0.6090749999999999,
+    "std": 0.05906190211125951,
+    "min": 0.542436,
+    "max": 0.654954,
+    "n": 3
+  },
+  "errore_ekf_ospiti_p95_m": {
+    "media": 1.4153346666666664,
+    "std": 0.04743943778475173,
+    "min": 1.362558,
+    "max": 1.45443,
+    "n": 3
+  },
+  "fa_collettivi_onesti_da_onesti_post_pct": {
+    "media": 0.0,
+    "std": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "n": 3
+  },
+  "fa_collettivi_onesti_post_attacco_pct": {
+    "media": 0.0,
+    "std": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "n": 3
+  },
+  "fa_collettivi_pre_attacco_pct": {
+    "media": 0.20463957989334922,
+    "std": 0.17918879710760277,
+    "min": 0.04565592038184951,
+    "max": 0.39881258515370527,
+    "n": 3
+  },
+  "fa_individuali_onesti_da_onesti_post_pct": {
+    "media": 0.0,
+    "std": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "n": 3
+  },
+  "fa_individuali_onesti_post_attacco_pct": {
+    "media": 5.806122448979591,
+    "std": 0.1468997964172241,
+    "min": 5.637755102040816,
+    "max": 5.908163265306122,
+    "n": 3
+  },
+  "fa_individuali_pre_attacco_pct": {
+    "media": 0.12956897562912234,
+    "std": 0.060022627114074724,
+    "min": 0.07795793519746637,
+    "max": 0.19543621254364832,
+    "n": 3
+  },
+  "righe_log": {
+    "media": 576545.0,
+    "std": 0.0,
+    "min": 576545.0,
+    "max": 576545.0,
+    "n": 3
+  },
+  "rilevamento.0.latenza_individuale_mediana_s": {
+    "media": 2.268666666666661,
+    "std": 0.15275252316518598,
+    "min": 2.102000000000004,
+    "max": 2.401999999999987,
+    "n": 3
+  },
+  "rilevamento.0.latenza_max_s": {
+    "media": 2.3686666666666647,
+    "std": 0.15275252316519838,
+    "min": 2.201999999999998,
+    "max": 2.5020000000000095,
+    "n": 3
+  },
+  "rilevamento.0.latenza_mediana_s": {
+    "media": 2.3686666666666647,
+    "std": 0.15275252316519838,
+    "min": 2.201999999999998,
+    "max": 2.5020000000000095,
+    "n": 3
+  },
+  "rilevamento.0.latenza_min_s": {
+    "media": 2.3686666666666647,
+    "std": 0.15275252316519838,
+    "min": 2.201999999999998,
+    "max": 2.5020000000000095,
+    "n": 3
+  },
+  "rilevamento.0.osservatori_che_lo_vedono": {
+    "media": 7.0,
+    "std": 0.0,
+    "min": 7.0,
+    "max": 7.0,
+    "n": 3
+  },
+  "rilevamento.0.osservatori_che_rilevano": {
+    "media": 7.0,
+    "std": 0.0,
+    "min": 7.0,
+    "max": 7.0,
+    "n": 3
+  },
+  "rilevamento.0.tasso_allarme_post_pct": {
+    "media": 94.08333333333333,
+    "std": 0.38188130791298663,
+    "min": 93.75,
+    "max": 94.5,
+    "n": 3
+  },
+  "rilevamento.0.tasso_voto_individuale_post_pct": {
+    "media": 94.34523809523809,
+    "std": 0.3933978962347246,
+    "min": 93.96428571428571,
+    "max": 94.75,
+    "n": 3
+  },
+  "sospetti_istantanei_pre_attacco_pct": {
+    "media": 1.309404578224111,
+    "std": 0.037195404077973865,
+    "min": 1.2790876034250964,
+    "max": 1.3509099603894288,
+    "n": 3
+  }
+}

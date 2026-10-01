@@ -62,9 +62,7 @@ private:
     MacState m_macState     = STATE_ACTIVE;
     bool     m_isGuest      = false;
     uint32_t m_listenCounter = 0;
-    int32_t  m_chosenSlot   = -1;
 
-    std::map<uint32_t, bool> m_localSlotMap;
     void EvaluateMacState();
     EventId m_macStateEvent;
 

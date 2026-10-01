@@ -318,37 +318,13 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
                       << " capta segnale a " << distanceToCube/*distFisica*/ << "m. Entra in Ascolto Passivo." << std::endl;
             m_macState = STATE_LISTENING;
             m_listenCounter = 0;
-            m_localSlotMap.clear();
         }
 
         // Ospite fuori dal geofence: non fa ancora parte dello sciame, non elabora il pacchetto
         if (m_isGuest && m_macState == STATE_OUT_OF_RANGE) continue;
 
-        // 2. FASE DI ASCOLTO: Mappatura silenziosa
-        if (m_isGuest && m_macState == STATE_LISTENING) {
-            // Mappo l'ID di chi sta parlando
-            m_localSlotMap[senderId] = true; 
-            continue;
-        }
-        // Trova lo slot usato dal mittente guardando la mappa
-        uint32_t senderSlot = UINT32_MAX;
-        if (m_slotMap.find(senderId) != m_slotMap.end()) {
-            senderSlot = m_slotMap[senderId];
-        }
-
-        // 3. FASE DI CONTESA: Rilevamento collisioni
-        if (m_isGuest && m_macState == STATE_JOINING) {
-            if (senderId == (uint32_t)m_chosenSlot) {
-                if (s_verbosity >= 1)
-                    std::cout << "[COLLISIONE] Drone " << m_id << ": lo slot " << m_chosenSlot
-                              << " e' gia' usato dal Drone " << senderId << ". Torno in ascolto.\n";
-                (void)senderSlot;
-                m_macState = STATE_LISTENING; // Ritorno in ascolto, ho perso lo slot
-                m_listenCounter = 0;
-                continue;
-            }
-        }
-
+        // 2. FASE DI ASCOLTO: l'ospite ascolta in silenzio per qualche frame prima di annunciarsi
+        if (m_isGuest && m_macState == STATE_LISTENING) continue;
         // 4. AGGIUNTA DINAMICA PER I DRONI BASE (Aggiornano la loro mappa)
         if (m_slotMap.find(senderId) == m_slotMap.end() || m_slotMap[senderId] == UINT32_MAX) {
             if (s_verbosity >= 2) std::cout << ">>> [RETE] Il nodo " << m_id << " riconosce un nuovo membro attivo: Drone " << senderId << std::endl;
@@ -801,17 +777,16 @@ void UwbSecurityApp::SetNodeRole(bool isGuest) {
     if (isGuest) {
         m_macState = STATE_OUT_OF_RANGE;
         m_listenCounter = 0;
-        m_chosenSlot = -1;
         m_isActive = true;
     } else {
         m_macState = STATE_ACTIVE;
-        m_chosenSlot = m_id;
         m_isActive = true;
     }
 }
 
 void UwbSecurityApp::EvaluateMacState() {
     if (!m_isGuest) return;
+    if (!m_isActive) return;   // dopo il goodbye l'ospite e' fuori: la macchina a stati si ferma
 
     double frameDuration = m_swarmSize * m_slotDuration;
 
@@ -849,28 +824,16 @@ void UwbSecurityApp::EvaluateMacState() {
     if (m_macState == STATE_LISTENING) {
         m_listenCounter++;
         if (m_listenCounter >= 3) {
-            m_chosenSlot = -1;
-            for (uint32_t i = 0; i < m_swarmSize; ++i) {
-                if (!m_localSlotMap[i]) {
-                    m_chosenSlot = i;
-                    break;
-                }
-            }
-
-            if (m_chosenSlot != -1) {
-                m_macState = STATE_JOINING;
-                m_slotId = m_chosenSlot;          
-                m_slotMap[m_id] = m_chosenSlot;
-                if (s_verbosity >= 1)
-                    std::cout << "\n>>> [NODO GUEST] Drone " << m_id << ": mappatura completata, tento il join sullo slot " << m_chosenSlot << std::endl;
-            } else {
-                if (s_verbosity >= 1) std::cout << "[NODO GUEST] Il Frame TDMA è totalmente saturo! Rimango in ascolto...\n";
-                m_listenCounter = 0; 
-            }
+            // TDMA statico: ogni possibile membro ha uno slot riservato, uguale al suo ID
+            m_macState = STATE_JOINING;
+            m_slotId = m_id;
+            m_slotMap[m_id] = m_id;
+            if (s_verbosity >= 1)
+                std::cout << "\n>>> [NODO GUEST] Drone " << m_id << ": ascolto completato, mi annuncio nel mio slot (" << m_id << ")" << std::endl;
         }
     } else if (m_macState == STATE_JOINING) {
         m_macState = STATE_ACTIVE;
-        if (s_verbosity >= 1) std::cout << ">>> [NODO " << m_id << "] Join confermato senza collisioni! Ora sono ACTIVE.\n" << std::endl;
+        if (s_verbosity >= 1) std::cout << ">>> [NODO " << m_id << "] Join completato, ora sono ACTIVE." << std::endl;
     }
 
     // Ri-schedula il timer per il prossimo frame

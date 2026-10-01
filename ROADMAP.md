@@ -49,7 +49,7 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step2.4_seed1.json` (1 seed) e `reference/step2.4_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step2.5_seed1.json` (1 seed) e `reference/step2.5_seed1-3.json` (3 seed).
 
 Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
 e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
@@ -93,20 +93,9 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 - [ ] **Fase 2 – Errori logici che falsano i risultati**
   - [x] 2.0 Rumore del canale: un generatore per collegamento (prima uno solo condiviso, quindi ogni
         modifica rimescolava il rumore di tutti). Test: `tests/test_channel.cc`
-  - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
-  - [x] 2.4 Avvelenamento delle ancore: un drone sotto allarme collettivo non viene piu' usato come
-        ancora. Falsi allarmi tra onesti dopo l'attacco 60% -> 0%, errore onesti p95 10,8 -> 0,99 m.
-        Esperimenti: oracolo (mai il nodo 0) = stesso risultato; gating sui residui da solo 14,8%
-  - [ ] Voti non autenticati: un attaccante potrebbe accusare droni onesti per farli escludere
-        come ancore (da trattare nel threat model)
-  - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
-  - [x] Allarme collettivo mai usato: ora esclude il drone sospetto dalle ancore (2.4)
-  - [ ] Slot TDMA scelto dagli ospiti ma non usato per trasmettere; JOINING → ACTIVE senza verifica.
-        Visto in 1.2: i droni 12, 13, 17, 18 scelgono tutti lo slot 9 e vengono tutti confermati
-        (il controllo collisioni confronta l'ID del mittente con lo slot, non lo slot con lo slot)
-  - [ ] Uscita dal geofence che scatta due volte per ogni ospite (dopo il goodbye `m_pendingLeave`
-        torna false e lo stato resta ACTIVE): innocuo oggi, ma logica sbagliata
-  - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
+  - [x] 2.1 Ospiti fuori dal geofence non elaborano piu' i pacchetti (prima stimavano e scrivevano
+        nel CSV da t=0). Le loro righe abbassavano l'errore EKF dei base (p95 0,67 m contro 1,25 m):
+        ora p95 1,31 m, piu' onesto
   - [x] 2.2 Compensazione del ritardo dei range condivisi: ogni range porta la sua eta' e l'EKF lo
         confronta con le posizioni all'istante della misura. Causa del raddoppio dell'errore con gli
         ospiti (7.5 m/s x 0.12 s ~ 0.9 m di errore sistematico). Corretto anche: i droni condividevano
@@ -114,14 +103,25 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [x] 2.3 Rumore di processo EKF `q_acc` da 0.5 a 2 (opzione `--qAcc`): con 0.5 il filtro non
         segue le curve degli ospiti (3.75 m/s^2) e la compensazione del ritardo peggiorava la loro stima.
         Sweep 0.5-5: salto tra 0.5 e 1-2, poi andamento graduale
+  - [x] 2.4 Avvelenamento delle ancore: un drone sotto allarme collettivo non viene piu' usato come
+        ancora. Falsi allarmi tra onesti dopo l'attacco 60% -> 0%, errore onesti p95 10,8 -> 0,99 m.
+        Esperimenti: oracolo (mai il nodo 0) = stesso risultato; gating sui residui da solo 14,8%
+  - [x] 2.5 Join TDMA: lo slot "scelto" non veniva usato (si trasmette sempre nello slot = ID), le
+        collisioni erano finte e le mappe incoerenti: 219.056 voci sbagliate e 3.833 voti attribuiti al
+        drone sbagliato (seed 1). Ora TDMA statico slot = ID: 0 voci incoerenti, 0 voti sbagliati
+  - [x] 2.5 Uscita dal geofence che scattava due volte: dopo il goodbye la macchina a stati si ferma
+  - [x] Allarme collettivo mai usato: ora esclude il drone sospetto dalle ancore (2.4)
+  - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
+  - [ ] Voti non autenticati: un attaccante potrebbe accusare droni onesti per farli escludere
+        come ancore (da trattare nel threat model)
+  - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
+  - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
   - [ ] Ogni drone condivide solo i 10 range piu' vicini: con gli ospiti dentro, alcuni range tra
         droni base non vengono piu' condivisi (esperimento E1: senza i range degli ospiti p95 8 m)
   - [ ] `q_acc` unico per droni lenti e veloci: valutare rumore di processo adattivo per drone
   - [ ] Ricontrollare la sensibilita' con attacchi piu' lenti/sottili dopo l'aumento di `q_acc`
-  - [x] 2.1 Ospiti fuori dal geofence non elaborano piu' i pacchetti (prima stimavano e scrivevano
-        nel CSV da t=0). Le loro righe abbassavano l'errore EKF dei base (p95 0,67 m contro 1,25 m):
-        ora p95 1,31 m, piu' onesto
-- [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm
+- [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm;
+      valutare qui un'allocazione dinamica degli slot con collisioni vere
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
 - [ ] **Fase 6 – Ricevitore GNSS** (satelliti, pseudodistanze, minimi quadrati per posizione e clock bias)
@@ -146,3 +146,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.2 | compensate the delay of shared ranges | Base p95 1,31 -> 0,90 m; ospiti peggiorati (q_acc troppo basso) |
 | 2026-10-01 | 2.3 | raise ekf process noise | Rispetto a 2.1: base p95 1,31 -> 1,01 m, ospiti mediana 0,72 -> 0,61 m, FA pre-attacco 1,38% -> 0,25%, rilevamento invariato |
 | 2026-10-01 | 2.4 | stop using alarmed drones as anchors | FA onesti->onesti post 60% -> 0%; pre-attacco e rilevamento invariati |
+| 2026-10-01 | 2.5 | static tdma slots, single leave | Collisioni finte 9 -> 0, uscite avviate 24 -> 12, voti mal attribuiti 3.833 -> 0; metriche invariate |
