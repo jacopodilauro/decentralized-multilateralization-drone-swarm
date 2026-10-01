@@ -1,0 +1,6 @@
+# output delle simulazioni e build locali
+runs/
+sim
+build_warnings.txt
+__pycache__/
+*.pyc
