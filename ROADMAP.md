@@ -49,8 +49,10 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step1.1_seed1.json` (1 seed) e `reference/step1.1_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step1.4_seed1.json` (1 seed) e `reference/step1.4_seed1-3.json` (3 seed).
 Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
+Se un passo cambia i numeri di proposito, si usa `--tol` e si confronta la differenza con la
+deviazione standard tra seed (vedi passo 1.4).
 
 ## Numeri di riferimento (v0-baseline, ns-3.44, seed 1–3, default)
 
@@ -77,7 +79,8 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [x] Colori NetAnim: rosso = attaccanti reali (`--targetsId`), blu = base, giallo = ospiti
         (prima il drone 8 era blu e il rosso era sempre sul nodo 0)
-  - [ ] L'header dei range condivisi cresce con l'ID massimo invece che con il numero di range (10)
+  - [x] Header dei range condivisi: ora solo coppie (ID, range), max 10; la dimensione non dipende
+        piu' dall'ID massimo (prima: 240 KB per un solo range verso l'ID 60000). Test: `tests/test_header.cc`
   - [x] Codice morto rimosso (`PrintTerminalDashboard`, `GetVoteBitmask`, `AddPeer`, `AddPeerSlot`,
         `GetFirstAvailableSlot`, dichiarazioni senza corpo); stampe di debug a istanti fissi sostituite
         dall'opzione `--verbose` (0 silenzioso, 1 eventi = default, 2 debug)
@@ -110,3 +113,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 1.1 | log individual votes | Falsi voti individuali su onesti post-attacco: 58,2 % (seed 1–3). L'avvelenamento delle ancore agisce già nel singolo EKF |
 | 2026-09-30 | 1.2 | clean up dead code, add --verbose | CSV identico byte per byte; output da ~5.000 a 212 righe (livello 1) |
 | 2026-09-30 | 1.3 | fix netanim colors | Colori corretti; scoperto che NetAnim altera il CSV a livello di arrotondamento |
+| 2026-09-30 | 1.4 | send only the shared ranges | Contenuto dei pacchetti identico (prova con pacchetti a 256 byte fissi: CSV identici, seed 1-2). Il CSV reale cambia solo per il tempo di trasmissione Wi-Fi: metriche entro 0,02 deviazioni standard tra seed |

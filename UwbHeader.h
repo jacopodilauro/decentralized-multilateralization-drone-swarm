@@ -2,6 +2,8 @@
 #define UWB_HEADER_H
 
 #include "ns3/header.h"
+#include <map>
+#include <vector>
 #include <iostream>
 
 namespace ns3 {
@@ -51,7 +53,9 @@ namespace ns3 {
         double m_gpsZ;
         bool m_imLeaving;
 
-        std::vector<double> m_sharedRanges;
+        // Range condivisi: solo le coppie (ID bersaglio -> range in metri) effettivamente misurate.
+        // Sul pacchetto: 1 byte = numero di coppie, poi per ogni coppia 2 byte ID + 4 byte range in mm.
+        std::map<uint32_t, double> m_sharedRanges;
         std::vector<uint8_t> m_alarmsList;
         std::vector<uint32_t> m_gossipLeaves;
         std::vector<uint32_t> m_gossipEvictions;

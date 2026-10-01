@@ -198,13 +198,8 @@ void UwbSecurityApp::SendUwbMessage() {
     }
     header.SetGossipEvictions(evictGossip);
     
-    // tolgo temporaneamente la condivisione dei range per semplificare il debug, ma l'idea è che ogni drone condivida i range misurati verso gli altri peer attivi, così da avere più osservatori per il controllo incrociato e aumentare la resilienza contro i falsi positivi/negativi.
-    /*for (const auto& pair : m_slotMap) {
-        uint32_t targetId = pair.first;
-        if (targetId < m_myLastRanges.size()) {
-            header.SetSharedRange(targetId, m_myLastRanges[targetId]);
-        }
-    }*/
+    // Condivido i range verso i MAX_RANGES_TO_SHARE vicini PIU' VICINI: la coda tiene in cima il range
+    // piu' grande, che viene scartato quando si supera il limite.
     const size_t MAX_RANGES_TO_SHARE = 10;
     std::priority_queue<std::pair<double, uint32_t>> maxHeap; // (range, targetId)
     for (const auto& pair : m_slotMap) {
