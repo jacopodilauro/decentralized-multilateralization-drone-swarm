@@ -47,6 +47,8 @@ def main():
     ap.add_argument("dopo")
     ap.add_argument("--tol", type=float, default=0.0,
                     help="tolleranza relativa (0 = devono essere identici)")
+    ap.add_argument("--ignora-nuove", action="store_true",
+                    help="le metriche nuove sono attese: mostrale ma non contarle come differenze")
     a = ap.parse_args()
 
     A, B = load(a.prima), load(a.dopo)
@@ -60,7 +62,8 @@ def main():
         vb = B.get(k, (None, None))[0]
         if va is None or vb is None:
             status = "NUOVA" if va is None else "RIMOSSA"
-            changed += 1
+            if not (status == "NUOVA" and a.ignora_nuove):
+                changed += 1
         else:
             den = max(abs(va), abs(vb), 1e-12)
             rel = abs(va - vb) / den

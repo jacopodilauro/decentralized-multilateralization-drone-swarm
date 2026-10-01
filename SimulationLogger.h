@@ -19,7 +19,11 @@ public:
         uint32_t totalVotes, 
         uint32_t threshold,
         uint32_t activeNodes,
-        uint32_t peerVotes
+        uint32_t peerVotes,
+        uint32_t myVote,        // voto individuale (dopo isteresi), quello condiviso nella bitmap
+        bool suspiciousNow,     // sospetto istantaneo del singolo campione (prima dell'isteresi)
+        double mahal,           // distanza di Mahalanobis calcolata dall'EKF
+        double posStd           // deviazione standard di posizione stimata dall'EKF
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -31,7 +35,8 @@ public:
             << discrepancy << "," << estimation_error << "," << alarm << ","
             << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << ","
             << totalVotes << "," << threshold << "," 
-            << activeNodes << "," << peerVotes << "\n";
+            << activeNodes << "," << peerVotes << ","
+            << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "\n";
     }
 };
 

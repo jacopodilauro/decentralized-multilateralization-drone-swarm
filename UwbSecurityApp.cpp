@@ -633,7 +633,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             currentTime, senderId, m_id,
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
-            currentActiveNodes, peerVoteCount); 
+            currentActiveNodes, peerVoteCount,
+            myVote, suspiciousNow, mahal, posStd);
 
         if (currentTime >= 200.0 && currentTime <= 210.0 && senderId == 0) {
             std::cout << "[DEBUG t=" << currentTime << "s] " 

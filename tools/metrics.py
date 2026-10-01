@@ -62,6 +62,20 @@ def compute(log_path, attack_time, targets, n_base):
                                 honest_post[honest_post.alarm == 1]
                                 .groupby("sender_id").size().items()}
 
+    # 3b) Metriche INDIVIDUALI (colonne presenti dalla Fase 1.1 in poi)
+    if "my_vote" in d.columns:
+        m["fa_individuali_pre_attacco_pct"] = _pct(int(pre.my_vote.sum()), len(pre))
+        m["sospetti_istantanei_pre_attacco_pct"] = _pct(int(pre.suspicious_now.sum()), len(pre))
+        m["fa_individuali_onesti_post_attacco_pct"] = _pct(int(honest_post.my_vote.sum()),
+                                                          len(honest_post))
+        for t in targets:
+            obs = post[post.sender_id == t]
+            first = obs[obs.my_vote == 1].groupby("observer_id").time.min() - attack_time
+            lat = sorted(float(x) for x in first.values)
+            det[str(t)]["latenza_individuale_mediana_s"] = (
+                float(pd.Series(lat).median()) if lat else None)
+            det[str(t)]["tasso_voto_individuale_post_pct"] = _pct(int(obs.my_vote.sum()), len(obs))
+
     # 4) Accuratezza della multilaterazione (EKF) prima dell'attacco
     base = pre[pre.sender_id < n_base].estimation_error
     guest = pre[pre.sender_id >= n_base].estimation_error

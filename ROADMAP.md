@@ -43,6 +43,9 @@ Con la build nella cartella `scratch/` di ns-3, l'eseguibile si trova con:
 
 Proprietà verificata in Fase 0: **stesso seed ⇒ output identico bit per bit.**
 
+Riferimento corrente: `reference/step1.1_seed1.json` (1 seed) e `reference/step1.1_seed1-3.json` (3 seed).
+Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
+
 ## Numeri di riferimento (v0-baseline, ns-3.44, seed 1–3, default)
 
 La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il sospetto individuale.
@@ -61,7 +64,8 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 - [x] **Fase 0 – Infrastruttura**: script di build, metriche, confronto, esecuzione multi-seed; questo file.
       Unica modifica al simulatore: `#include <iomanip>` mancante in `UwbSecurityApp.cpp`.
 - [ ] **Fase 1 – Bug che non cambiano il modello** (le metriche devono restare identiche, salvo dove previsto)
-  - [ ] Salvare nel CSV anche il sospetto individuale (`myVote`), oggi non registrato
+  - [x] Salvare nel CSV anche il sospetto individuale: nuove colonne `my_vote`, `suspicious_now`,
+        `mahal`, `pos_std` (in fondo, le 22 esistenti sono identiche byte per byte)
   - [ ] `m_isGuest` non inizializzato nel costruttore; `m_voteBitmask` inutilizzato e non inizializzato
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [ ] Colori NetAnim: `i <= setnDrones` colora di blu anche il primo ospite
@@ -88,3 +92,5 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | Data | Fase | Commit | Note |
 |---|---|---|---|
 | 2026-09-30 | 0 | infrastruttura | Riproducibilità verificata; baseline su 3 seed |
+| 2026-09-30 | 0 | – | Ambiente di Jacopo (ns-3-dev) identico a ns-3.44: 26/26 metriche uguali |
+| 2026-09-30 | 1.1 | log individual votes | Falsi voti individuali su onesti post-attacco: 58,2 % (seed 1–3). L'avvelenamento delle ancore agisce già nel singolo EKF |
