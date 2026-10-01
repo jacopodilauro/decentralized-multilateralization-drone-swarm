@@ -552,6 +552,10 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         if (pair.second == UINT32_MAX) continue;
         
         if (k == m_id || k == senderId) continue;
+        // Un drone sotto allarme collettivo non e' un'ancora affidabile: la sua posizione dichiarata
+        // e' sospetta e trascinerebbe le stime dei droni onesti (avvelenamento delle ancore)
+        auto alarmIt = m_collectiveAlarm.find(k);
+        if (alarmIt != m_collectiveAlarm.end() && alarmIt->second) continue;
 
         auto rangeIt = m_networkRanges.find(k);
         if (rangeIt == m_networkRanges.end()) continue;
@@ -634,6 +638,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     uint32_t threshold = std::max(2u, ((activeObservers * 2u + 2u) / 3u));
     
     bool collectiveAlarm = (totalVotes >= threshold);
+    m_collectiveAlarm[senderId] = collectiveAlarm;
 
     // Traccia continua: osservatore 1 che stima il nodo 0
     if (s_verbosity >= 2 && m_id == 1 && senderId == 0) {
@@ -753,6 +758,7 @@ void UwbSecurityApp::RemovePeer(uint32_t peerId) {
     m_networkRanges.erase(peerId);
     m_networkRangeTimes.erase(peerId);
     m_networkRangesLos.erase(peerId);
+    m_collectiveAlarm.erase(peerId);
     if (peerId < m_myLastRanges.size()) {   // non condivido piu' il mio range verso chi e' uscito
         m_myLastRanges[peerId]    = -1.0;
         m_myLastRangeTime[peerId] = -1.0;

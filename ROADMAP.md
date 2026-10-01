@@ -49,7 +49,10 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step2.3_seed1.json` (1 seed) e `reference/step2.3_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step2.4_seed1.json` (1 seed) e `reference/step2.4_seed1-3.json` (3 seed).
+
+Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
+e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
 Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
 Se un passo cambia i numeri di proposito, si usa `--tol` e si confronta la differenza con la
 deviazione standard tra seed (vedi passo 1.4).
@@ -91,9 +94,13 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [x] 2.0 Rumore del canale: un generatore per collegamento (prima uno solo condiviso, quindi ogni
         modifica rimescolava il rumore di tutti). Test: `tests/test_channel.cc`
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
-  - [ ] Avvelenamento delle ancore: il nodo che mente viene usato come ancora ⇒ 61 % di falsi allarmi
+  - [x] 2.4 Avvelenamento delle ancore: un drone sotto allarme collettivo non viene piu' usato come
+        ancora. Falsi allarmi tra onesti dopo l'attacco 60% -> 0%, errore onesti p95 10,8 -> 0,99 m.
+        Esperimenti: oracolo (mai il nodo 0) = stesso risultato; gating sui residui da solo 14,8%
+  - [ ] Voti non autenticati: un attaccante potrebbe accusare droni onesti per farli escludere
+        come ancore (da trattare nel threat model)
   - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
-  - [ ] Allarme collettivo mai usato (nessuna esclusione del nodo sospetto)
+  - [x] Allarme collettivo mai usato: ora esclude il drone sospetto dalle ancore (2.4)
   - [ ] Slot TDMA scelto dagli ospiti ma non usato per trasmettere; JOINING → ACTIVE senza verifica.
         Visto in 1.2: i droni 12, 13, 17, 18 scelgono tutti lo slot 9 e vengono tutti confermati
         (il controllo collisioni confronta l'ID del mittente con lo slot, non lo slot con lo slot)
@@ -138,3 +145,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.1 | guests out of range ignore packets | Righe dei base prima del primo ingresso identiche (prova del disaccoppiamento 2.0) |
 | 2026-10-01 | 2.2 | compensate the delay of shared ranges | Base p95 1,31 -> 0,90 m; ospiti peggiorati (q_acc troppo basso) |
 | 2026-10-01 | 2.3 | raise ekf process noise | Rispetto a 2.1: base p95 1,31 -> 1,01 m, ospiti mediana 0,72 -> 0,61 m, FA pre-attacco 1,38% -> 0,25%, rilevamento invariato |
+| 2026-10-01 | 2.4 | stop using alarmed drones as anchors | FA onesti->onesti post 60% -> 0%; pre-attacco e rilevamento invariati |

@@ -76,6 +76,15 @@ def compute(log_path, attack_time, targets, n_base):
                 float(pd.Series(lat).median()) if lat else None)
             det[str(t)]["tasso_voto_individuale_post_pct"] = _pct(int(obs.my_vote.sum()), len(obs))
 
+    # 3c) Solo tra droni ONESTI: osservatore e drone osservato non sono bersagli dell'attacco.
+    #     (le metriche sopra includono anche le opinioni dell'attaccante sugli altri)
+    hh = post[~post.sender_id.isin(targets) & ~post.observer_id.isin(targets)]
+    m["fa_collettivi_onesti_da_onesti_post_pct"] = _pct(int(hh.alarm.sum()), len(hh))
+    if "my_vote" in d.columns:
+        m["fa_individuali_onesti_da_onesti_post_pct"] = _pct(int(hh.my_vote.sum()), len(hh))
+    m["errore_ekf_onesti_post_mediana_m"] = float(hh.estimation_error.median()) if len(hh) else None
+    m["errore_ekf_onesti_post_p95_m"] = float(hh.estimation_error.quantile(.95)) if len(hh) else None
+
     # 4) Accuratezza della multilaterazione (EKF) prima dell'attacco
     base = pre[pre.sender_id < n_base].estimation_error
     guest = pre[pre.sender_id >= n_base].estimation_error

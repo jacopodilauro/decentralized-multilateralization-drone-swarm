@@ -136,6 +136,7 @@ private:
     // Evita che lo stesso evento venga stampato da ogni drone: true solo la prima volta in 1 s
     static bool AnnounceOnce(char kind, uint32_t droneId, double now);
     static std::map<std::pair<char, uint32_t>, double> s_lastAnnounce;
+    std::map<uint32_t, bool> m_collectiveAlarm;   // mio allarme collettivo su ciascun drone
     std::map<uint32_t, uint32_t> m_lastPrintedVoteState;  // per stampare i cambi di voto (livello 2)
 };
 
