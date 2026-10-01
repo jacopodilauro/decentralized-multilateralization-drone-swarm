@@ -63,6 +63,7 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
     m_slotDuration = slotDuration;
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
+    m_myLastRangeTime.assign(swarmSize, -1.0);
 
     uint64_t base = RngSeedManager::GetSeed() * 6364136223846793005ULL
               + RngSeedManager::GetRun();
@@ -206,8 +207,9 @@ void UwbSecurityApp::SendUwbMessage() {
         uint32_t targetId = pair.first;
         if (targetId < m_myLastRanges.size()) {
             double r = m_myLastRanges[targetId];
-            
-            if (r > 0.0) { 
+            double age = Simulator::Now().GetSeconds() - m_myLastRangeTime[targetId];
+
+            if (r > 0.0 && age <= MaxRangeAge()) {   // un range troppo vecchio verrebbe scartato comunque
                 maxHeap.push({r, targetId});
                 
                 if (maxHeap.size() > MAX_RANGES_TO_SHARE) {
@@ -221,7 +223,8 @@ void UwbSecurityApp::SendUwbMessage() {
         auto bestRange = maxHeap.top();
         maxHeap.pop();
         
-        header.SetSharedRange(bestRange.second, bestRange.first);
+        double rangeAge = Simulator::Now().GetSeconds() - m_myLastRangeTime[bestRange.second];
+        header.SetSharedRange(bestRange.second, bestRange.first, rangeAge);
     }
 
 
@@ -478,7 +481,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             double r = header.GetSharedRange(i);
             if (r > 0.0) {
                 m_networkRanges[senderId][i]     = r;
-                m_networkRangeTimes[senderId][i] = txTimeSec;
+                m_networkRangeTimes[senderId][i] = txTimeSec - header.GetSharedRangeAge(i);  // istante della misura
                 m_networkRangesLos[senderId][i]  = true; 
             }
         }
@@ -516,6 +519,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     double myMeasuredRange = (measuredToa - txTimeSec) * c;
     m_myLastRanges[senderId]    = myMeasuredRange;
     m_myLastRangesLos[senderId] = cond.is_los;
+    m_myLastRangeTime[senderId] = currentTime;
 
     if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
         m_ekfBank[senderId].Init(claimedGps);
@@ -541,7 +545,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     myData.is_los       = cond.is_los;
     inputData.push_back(myData);
 
-    double maxAge = std::min(1.0, 8.0 * m_swarmSize * m_slotDuration);
+    double maxAge = MaxRangeAge();
 
     for (const auto& pair : m_slotMap) {
         uint32_t k = pair.first; 
@@ -560,13 +564,22 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
 
         if (!m_lastKnownGps.count(k) || !m_lastKnownTime.count(k)) continue;
 
+        // Il range e' stato misurato da k all'istante tMeas: riporto l'ancora k a quell'istante.
+        // Velocita' di k: quella del mio EKF su k se c'e' (piu' stabile), altrimenti differenza di GPS.
+        double tMeas = m_networkRangeTimes[k][senderId];
         Eigen::Vector3d peerGps = m_lastKnownGps[k];
-        double peerAge = currentTime - m_lastKnownTime[k];
-        if (m_lastKnownVelocity.count(k) && peerAge < 1.0)
-        peerGps += m_lastKnownVelocity[k] * peerAge;
+        double dtAnchor = tMeas - m_lastKnownTime[k];
+        if (std::fabs(dtAnchor) < 1.0) {
+            auto ekfK = m_ekfBank.find(k);
+            if (ekfK != m_ekfBank.end() && currentTime - m_ekfInitTime[k] > 1.0)
+                peerGps += ekfK->second.GetVelocity() * dtAnchor;
+            else if (m_lastKnownVelocity.count(k))
+                peerGps += m_lastKnownVelocity[k] * dtAnchor;
+        }
 
         EKF::Msmnt peerData;
         peerData.anchor_pos    = peerGps;
+        peerData.delay         = std::max(0.0, currentTime - tMeas);
         peerData.is_direct     = false;
         peerData.range         = m_networkRanges[k][senderId];
         peerData.is_los        = m_networkRangesLos.count(k) ? (m_networkRangesLos[k].count(senderId) ? m_networkRangesLos[k][senderId] : true) : true;
@@ -718,6 +731,7 @@ void UwbSecurityApp::SetActive(bool active) {
         
         m_myLastRanges.assign(m_swarmSize, -1.0);
         m_myLastRangesLos.assign(m_swarmSize, true);
+        m_myLastRangeTime.assign(m_swarmSize, -1.0);
     }
 }
 
@@ -739,6 +753,10 @@ void UwbSecurityApp::RemovePeer(uint32_t peerId) {
     m_networkRanges.erase(peerId);
     m_networkRangeTimes.erase(peerId);
     m_networkRangesLos.erase(peerId);
+    if (peerId < m_myLastRanges.size()) {   // non condivido piu' il mio range verso chi e' uscito
+        m_myLastRanges[peerId]    = -1.0;
+        m_myLastRangeTime[peerId] = -1.0;
+    }
 
     m_peerVotes.erase(peerId);
     for (auto& [id, voters] : m_peerVotes)

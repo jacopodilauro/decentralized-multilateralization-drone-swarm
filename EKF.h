@@ -15,6 +15,7 @@ public:
         bool            is_direct;   
         bool            is_los;      
         double          range = 0.0;
+        double          delay = 0.0;   // [s] la misura e' stata presa 'delay' secondi fa
         Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true) {}
     };
 
@@ -26,6 +27,7 @@ public:
     double GetClockBias() const { return m_state(6); }
 
     Eigen::Vector3d GetPosition()        const;
+    Eigen::Vector3d GetVelocity()        const;
     Eigen::VectorXd GetState()           const;
     Eigen::MatrixXd GetCovariance()      const;
     double          GetPositionStdDev()  const;

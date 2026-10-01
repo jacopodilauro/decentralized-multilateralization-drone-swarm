@@ -83,6 +83,24 @@ int main()
     TestCase("ID alti (300, 65535)", {{300, 5.5}, {65535, 1.25}}, {}, {}, {});
     TestCase("range negativo = nessuna misura", {{4, -1.0}, {6, 2.5}}, {}, {}, {0x01});
 
+    // Eta' dei range: andata e ritorno con risoluzione 0.1 ms, saturazione a 6.5535 s, default 0
+    {
+        std::printf("[eta' dei range]\n");
+        UwbHeader h;
+        h.SetSharedRange(1, 5.0, 0.12345);   // -> 0.1235 (arrotondata al decimo di ms)
+        h.SetSharedRange(2, 6.0, 0.0);
+        h.SetSharedRange(3, 7.0, 100.0);     // oltre il massimo -> 6.5535
+        h.SetSharedRange(4, 8.0);            // default 0
+        uint32_t w = 0;
+        UwbHeader o = RoundTrip(h, &w);
+        CHECK(std::fabs(o.GetSharedRangeAge(1) - 0.1235) < 1e-9, "eta' 0.12345 s -> 0.1235 s");
+        CHECK(o.GetSharedRangeAge(2) == 0.0, "eta' 0");
+        CHECK(std::fabs(o.GetSharedRangeAge(3) - 6.5535) < 1e-9, "eta' saturata a 6.5535 s");
+        CHECK(o.GetSharedRangeAge(4) == 0.0, "eta' di default 0");
+        CHECK(o.GetSharedRangeAge(99) == -1.0, "eta' di un ID assente = -1");
+        CHECK(o.GetSharedRange(1) == 5.0 && o.GetSharedRange(3) == 7.0, "range invariati");
+    }
+
     // Sovrascrittura: l'ultimo valore impostato vince
     {
         std::printf("[sovrascrittura dello stesso ID]\n");

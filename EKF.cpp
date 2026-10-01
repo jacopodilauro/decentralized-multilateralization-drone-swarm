@@ -62,18 +62,25 @@ void EKF::Update(const vector<Msmnt>& measurements) {
     MatrixXd R = MatrixXd::Zero(n, n);
 
     Vector3d est_pos  = m_state.segment<3>(0);
+    Vector3d est_vel  = m_state.segment<3>(3);
     double   est_bias = m_state(6);
 
     for (int i = 0; i < n; ++i) {
         const Msmnt& m = measurements[i];
 
-        double geo_dist  = (est_pos - m.anchor_pos).norm();
-        double safe_dist = geo_dist + 1e-9;
+        // Misura ritardata: la confronto con la posizione all'istante della misura,
+        // p(t - delay) = p - v * delay. Con delay = 0 e' il modello di prima.
+        Vector3d pos_at    = est_pos - est_vel * m.delay;
+        double   geo_dist  = (pos_at - m.anchor_pos).norm();
+        double   safe_dist = geo_dist + 1e-9;
+        Vector3d u         = (pos_at - m.anchor_pos) / safe_dist;
 
-        H(i, 0) = (est_pos.x() - m.anchor_pos.x()) / safe_dist;
-        H(i, 1) = (est_pos.y() - m.anchor_pos.y()) / safe_dist;
-        H(i, 2) = (est_pos.z() - m.anchor_pos.z()) / safe_dist;
-        H(i, 3) = 0.0; H(i, 4) = 0.0; H(i, 5) = 0.0;
+        H(i, 0) = u.x();
+        H(i, 1) = u.y();
+        H(i, 2) = u.z();
+        H(i, 3) = -m.delay * u.x();
+        H(i, 4) = -m.delay * u.y();
+        H(i, 5) = -m.delay * u.z();
 
         if (m.is_direct) {
             Z(i)    = (m.toa - m.tx_timestamp) * c;
@@ -108,6 +115,7 @@ double EKF::GetMahalanobisDistance() const {
 }
 
 Vector3d EKF::GetPosition()             const { return m_state.segment<3>(0); }
+Vector3d EKF::GetVelocity()             const { return m_state.segment<3>(3); }
 VectorXd EKF::GetState()               const { return m_state; }
 MatrixXd EKF::GetCovariance()          const { return m_P; }
 double   EKF::GetPositionStdDev()      const {

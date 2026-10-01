@@ -12,6 +12,7 @@
 
 #include <Eigen/Dense>
 #include <map>
+#include <algorithm>
 #include <vector>
 #include <fstream>
 #include <set>
@@ -35,6 +36,8 @@ public:
 
     // Livello di output a terminale: 0 = silenzioso, 1 = eventi (default), 2 = debug completo
     static void SetVerbosity(uint32_t level);
+    // Eta' massima di un range per essere usato (e quindi condiviso)
+    double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
     void SetActive(bool active);
     void ScheduleLeave();
@@ -99,6 +102,7 @@ private:
 
     std::vector<double> m_myLastRanges;
     std::vector<bool>   m_myLastRangesLos;
+    std::vector<double> m_myLastRangeTime;   // istante in cui ho misurato ciascun range
 
     std::map<uint32_t, Eigen::Vector3d> m_lastKnownGps;
     std::map<uint32_t, double>          m_lastKnownTime;

@@ -1,0 +1,40 @@
+{
+  "righe_log": 575885,
+  "fa_collettivi_pre_attacco_pct": 1.7066406497014373,
+  "fa_pre_per_mittente": {
+    "3": 84,
+    "8": 400,
+    "16": 1159,
+    "17": 6296,
+    "19": 1507
+  },
+  "rilevamento": {
+    "0": {
+      "osservatori_che_lo_vedono": 7,
+      "osservatori_che_rilevano": 7,
+      "latenza_min_s": 2.5020000000000095,
+      "latenza_mediana_s": 2.602000000000004,
+      "latenza_max_s": 2.602000000000004,
+      "tasso_allarme_post_pct": 93.53571428571429,
+      "latenza_individuale_mediana_s": 2.5020000000000095,
+      "tasso_voto_individuale_post_pct": 93.75
+    }
+  },
+  "fa_collettivi_onesti_post_attacco_pct": 60.173469387755105,
+  "fa_post_per_mittente": {
+    "1": 2282,
+    "2": 2289,
+    "3": 2138,
+    "4": 2023,
+    "5": 1397,
+    "6": 1099,
+    "7": 566
+  },
+  "fa_individuali_pre_attacco_pct": 1.1808811440237765,
+  "sospetti_istantanei_pre_attacco_pct": 3.8160022403497837,
+  "fa_individuali_onesti_post_attacco_pct": 57.58163265306123,
+  "errore_ekf_base_mediana_m": 0.328468,
+  "errore_ekf_base_p95_m": 0.81908075,
+  "errore_ekf_ospiti_mediana_m": 0.891758,
+  "errore_ekf_ospiti_p95_m": 1.881893999999999
+}
