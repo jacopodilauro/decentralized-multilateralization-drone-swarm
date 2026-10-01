@@ -69,7 +69,8 @@ int main(int argc, char** argv)
     std::fclose(f);
     return 0;
 #else
-    if (argc > 1) {   // traccia per il confronto con il vecchio EKF
+    if (argc > 1) {   // traccia per il confronto con il vecchio EKF (che usava q_acc = 0.5)
+        EKF::SetDefaultQAcc(0.5);
         std::FILE* f = std::fopen(argv[1], "w");
         Run(0.0, 0.0, 300, 7, f);
         std::fclose(f);

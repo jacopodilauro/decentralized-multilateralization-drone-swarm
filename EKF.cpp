@@ -21,7 +21,7 @@ void EKF::Init(const Vector3d& init_pos) {
     m_P(6,6)             = 1000.0;  
 
     m_Q = MatrixXd::Zero(7, 7);
-    m_q_acc   = 0.5; 
+    m_q_acc   = s_defaultQAcc;
     m_q_drift = 0.01;
 }
 

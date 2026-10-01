@@ -21,6 +21,11 @@ public:
 
     EKF();
 
+    // Rumore di processo (accelerazione bianca) usato da Init(): deve permettere di seguire
+    // l'accelerazione massima dei droni (gli ospiti girano con ~3.75 m/s^2)
+    static void SetDefaultQAcc(double q) { s_defaultQAcc = q; }
+    static double GetDefaultQAcc() { return s_defaultQAcc; }
+
     void Init(const Eigen::Vector3d& init_pos);
     void Predict(double dt);
     void Update(const std::vector<Msmnt>& measurements);
@@ -40,6 +45,8 @@ private:
 
     double m_q_acc   = 0.5;  
     double m_q_drift = 0.05;   
+
+    static inline double s_defaultQAcc = 2.0;
 
     Eigen::VectorXd m_last_y;
     Eigen::MatrixXd m_last_S;
