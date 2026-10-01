@@ -84,7 +84,10 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [x] Codice morto rimosso (`PrintTerminalDashboard`, `GetVoteBitmask`, `AddPeer`, `AddPeerSlot`,
         `GetFirstAvailableSlot`, dichiarazioni senza corpo); stampe di debug a istanti fissi sostituite
         dall'opzione `--verbose` (0 silenzioso, 1 eventi = default, 2 debug)
-  - [ ] `viwer.py`: terminatori di riga Windows (CRLF); geofence disegnato in 3D ma calcolato in 2D
+  - [x] `viwer.py`: geofence disegnato come lo calcola il codice (2D, ingresso 10 m, uscita 14 m);
+        pannello del consenso con voti individuali e soglia di quorum reale (prima: allarmi collettivi
+        contro un 50% inesistente, che mostrava "non in protezione" anche ad allarme scattato);
+        opzioni `--csv`, `--target`, `--save`; terminatori di riga Unix
 - [ ] **Fase 2 – Errori logici che falsano i risultati**
   - [ ] Avvelenamento delle ancore: il nodo che mente viene usato come ancora ⇒ 61 % di falsi allarmi
   - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
@@ -95,6 +98,9 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [ ] Uscita dal geofence che scatta due volte per ogni ospite (dopo il goodbye `m_pendingLeave`
         torna false e lo stato resta ACTIVE): innocuo oggi, ma logica sbagliata
   - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
+  - [ ] Ospiti fuori dal geofence ricevono, stimano e scrivono nel CSV da t=0 (non trasmettono).
+        Nel seed 1 il 56% delle righe ha come osservatore un ospite: le metriche mediano anche
+        osservatori passivi a ~100 m. Decidere se un ospite OUT_OF_RANGE deve elaborare i pacchetti
 - [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
@@ -114,3 +120,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 1.2 | clean up dead code, add --verbose | CSV identico byte per byte; output da ~5.000 a 212 righe (livello 1) |
 | 2026-09-30 | 1.3 | fix netanim colors | Colori corretti; scoperto che NetAnim altera il CSV a livello di arrotondamento |
 | 2026-09-30 | 1.4 | send only the shared ranges | Contenuto dei pacchetti identico (prova con pacchetti a 256 byte fissi: CSV identici, seed 1-2). Il CSV reale cambia solo per il tempo di trasmissione Wi-Fi: metriche entro 0,02 deviazioni standard tra seed |
+| 2026-09-30 | 1.5 | fix the viewer | Il vecchio pannello del consenso diceva il contrario del codice; scoperti gli ospiti che osservano da fuori geofence |
