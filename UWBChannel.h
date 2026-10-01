@@ -5,6 +5,7 @@
 #include <Eigen/Dense>
 #include <random>
 #include <vector>
+#include <map>
 #include <string>
 
 using namespace ns3;
@@ -25,7 +26,10 @@ public:
     virtual ~UWBChannel();
 
     static TypeId GetTypeId();
-    ChannelCondition ComputeChannelCondition( Vector3d tx_pos, Vector3d rx_pos, double tx_power_dbm = 0.0);
+    // txId/rxId identificano il collegamento: ogni collegamento ha il proprio generatore casuale,
+    // cosi' il rumore di un collegamento non dipende da quante misure fanno gli altri
+    ChannelCondition ComputeChannelCondition(uint32_t txId, uint32_t rxId,
+                                             Vector3d tx_pos, Vector3d rx_pos, double tx_power_dbm = 0.0);
     
     void SetEnvironment(std::string env_type); 
     void AddObstacle(Vector3d center, double radius);
@@ -34,12 +38,14 @@ public:
 private:
     std::string m_environment;
     std::vector<std::pair<Vector3d, double>> m_obstacles; 
-    std::mt19937 m_rng;
-    
-    bool DetermineLOS(Vector3d tx, Vector3d rx);
-    double ComputePathLoss(double distance_m, bool is_los);
+    uint64_t m_baseSeed;
+    std::map<std::pair<uint32_t, uint32_t>, std::mt19937> m_linkRng;
+
+    std::mt19937& LinkRng(uint32_t txId, uint32_t rxId);
+    bool DetermineLOS(std::mt19937& rng, Vector3d tx, Vector3d rx);
+    double ComputePathLoss(std::mt19937& rng, double distance_m, bool is_los);
     double ComputeDelaySpread(double distance_m, bool is_los);
-    double ComputeRangingError(bool is_los, double distance_m);
+    double ComputeRangingError(std::mt19937& rng, bool is_los, double distance_m);
 };
 
 #endif

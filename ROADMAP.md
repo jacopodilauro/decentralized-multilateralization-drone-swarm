@@ -49,7 +49,7 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step1.4_seed1.json` (1 seed) e `reference/step1.4_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step2.0_seed1.json` (1 seed) e `reference/step2.0_seed1-3.json` (3 seed).
 Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
 Se un passo cambia i numeri di proposito, si usa `--tol` e si confronta la differenza con la
 deviazione standard tra seed (vedi passo 1.4).
@@ -76,7 +76,6 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         `mahal`, `pos_std` (in fondo, le 22 esistenti sono identiche byte per byte)
   - [x] Variabili non inizializzate (`m_isGuest`, `m_macState`, `m_listenCounter`, `m_chosenSlot`, `m_clockOffset`);
         rimossi `m_voteBitmask`, `m_recentLeaves`
-  - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [x] Colori NetAnim: rosso = attaccanti reali (`--targetsId`), blu = base, giallo = ospiti
         (prima il drone 8 era blu e il rosso era sempre sul nodo 0)
   - [x] Header dei range condivisi: ora solo coppie (ID, range), max 10; la dimensione non dipende
@@ -89,6 +88,9 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         contro un 50% inesistente, che mostrava "non in protezione" anche ad allarme scattato);
         opzioni `--csv`, `--target`, `--save`; terminatori di riga Unix
 - [ ] **Fase 2 – Errori logici che falsano i risultati**
+  - [x] 2.0 Rumore del canale: un generatore per collegamento (prima uno solo condiviso, quindi ogni
+        modifica rimescolava il rumore di tutti). Test: `tests/test_channel.cc`
+  - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [ ] Avvelenamento delle ancore: il nodo che mente viene usato come ancora ⇒ 61 % di falsi allarmi
   - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
   - [ ] Allarme collettivo mai usato (nessuna esclusione del nodo sospetto)
@@ -121,3 +123,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 1.3 | fix netanim colors | Colori corretti; scoperto che NetAnim altera il CSV a livello di arrotondamento |
 | 2026-09-30 | 1.4 | send only the shared ranges | Contenuto dei pacchetti identico (prova con pacchetti a 256 byte fissi: CSV identici, seed 1-2). Il CSV reale cambia solo per il tempo di trasmissione Wi-Fi: metriche entro 0,02 deviazioni standard tra seed |
 | 2026-09-30 | 1.5 | fix the viewer | Il vecchio pannello del consenso diceva il contrario del codice; scoperti gli ospiti che osservano da fuori geofence |
+| 2026-10-01 | 2.0 | per-link channel rng | Statistiche equivalenti (entro la variabilita' tra seed) |

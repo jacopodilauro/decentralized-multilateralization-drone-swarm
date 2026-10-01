@@ -494,7 +494,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     Ptr<MobilityModel> senderMobility = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
     Eigen::Vector3d senderTruePos( senderMobility->GetPosition().x, senderMobility->GetPosition().y, senderMobility->GetPosition().z);
 
-    ChannelCondition cond = m_channel->ComputeChannelCondition(senderTruePos, myTruePos, 0.0);
+    ChannelCondition cond = m_channel->ComputeChannelCondition(senderId, m_id, senderTruePos, myTruePos, 0.0);
 
     Ptr<Application> app = NodeList::GetNode(senderId)->GetApplication(0);
     Ptr<UwbSecurityApp> senderApp = DynamicCast<UwbSecurityApp>(app);
