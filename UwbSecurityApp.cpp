@@ -318,6 +318,9 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             m_localSlotMap.clear();
         }
 
+        // Ospite fuori dal geofence: non fa ancora parte dello sciame, non elabora il pacchetto
+        if (m_isGuest && m_macState == STATE_OUT_OF_RANGE) continue;
+
         // 2. FASE DI ASCOLTO: Mappatura silenziosa
         if (m_isGuest && m_macState == STATE_LISTENING) {
             // Mappo l'ID di chi sta parlando

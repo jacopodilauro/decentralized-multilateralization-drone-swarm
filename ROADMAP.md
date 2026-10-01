@@ -49,7 +49,7 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step2.0_seed1.json` (1 seed) e `reference/step2.0_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step2.1_seed1.json` (1 seed) e `reference/step2.1_seed1-3.json` (3 seed).
 Se un passo aggiunge metriche nuove di proposito, si confronta con `--ignora-nuove`.
 Se un passo cambia i numeri di proposito, si usa `--tol` e si confronta la differenza con la
 deviazione standard tra seed (vedi passo 1.4).
@@ -100,9 +100,9 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [ ] Uscita dal geofence che scatta due volte per ogni ospite (dopo il goodbye `m_pendingLeave`
         torna false e lo stato resta ACTIVE): innocuo oggi, ma logica sbagliata
   - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
-  - [ ] Ospiti fuori dal geofence ricevono, stimano e scrivono nel CSV da t=0 (non trasmettono).
-        Nel seed 1 il 56% delle righe ha come osservatore un ospite: le metriche mediano anche
-        osservatori passivi a ~100 m. Decidere se un ospite OUT_OF_RANGE deve elaborare i pacchetti
+  - [x] 2.1 Ospiti fuori dal geofence non elaborano piu' i pacchetti (prima stimavano e scrivevano
+        nel CSV da t=0). Le loro righe abbassavano l'errore EKF dei base (p95 0,67 m contro 1,25 m):
+        ora p95 1,31 m, piu' onesto
 - [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
@@ -124,3 +124,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 1.4 | send only the shared ranges | Contenuto dei pacchetti identico (prova con pacchetti a 256 byte fissi: CSV identici, seed 1-2). Il CSV reale cambia solo per il tempo di trasmissione Wi-Fi: metriche entro 0,02 deviazioni standard tra seed |
 | 2026-09-30 | 1.5 | fix the viewer | Il vecchio pannello del consenso diceva il contrario del codice; scoperti gli ospiti che osservano da fuori geofence |
 | 2026-10-01 | 2.0 | per-link channel rng | Statistiche equivalenti (entro la variabilita' tra seed) |
+| 2026-10-01 | 2.1 | guests out of range ignore packets | Righe dei base prima del primo ingresso identiche (prova del disaccoppiamento 2.0) |
