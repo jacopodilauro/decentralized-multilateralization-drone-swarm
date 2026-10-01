@@ -34,6 +34,8 @@ NS3_PREFIX=/percorso/ns3 NS3_VER=3.44 tools/build_standalone.sh sim
 # 3 seed + metriche aggregate
 SIM=./sim tools/run_seeds.sh <etichetta>
 
+# output a terminale: --verbose=0 (silenzioso), 1 (eventi, default), 2 (debug completo)
+
 # confronto con il passo precedente
 python3 tools/compare.py runs/<prima>/summary.json runs/<dopo>/summary.json
 ```
@@ -66,17 +68,24 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 - [ ] **Fase 1 – Bug che non cambiano il modello** (le metriche devono restare identiche, salvo dove previsto)
   - [x] Salvare nel CSV anche il sospetto individuale: nuove colonne `my_vote`, `suspicious_now`,
         `mahal`, `pos_std` (in fondo, le 22 esistenti sono identiche byte per byte)
-  - [ ] `m_isGuest` non inizializzato nel costruttore; `m_voteBitmask` inutilizzato e non inizializzato
+  - [x] Variabili non inizializzate (`m_isGuest`, `m_macState`, `m_listenCounter`, `m_chosenSlot`, `m_clockOffset`);
+        rimossi `m_voteBitmask`, `m_recentLeaves`
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [ ] Colori NetAnim: `i <= setnDrones` colora di blu anche il primo ospite
   - [ ] L'header dei range condivisi cresce con l'ID massimo invece che con il numero di range (10)
-  - [ ] Codice morto (`PrintTerminalDashboard`, `GetVoteBitmask`), stampe di debug a istanti fissi
+  - [x] Codice morto rimosso (`PrintTerminalDashboard`, `GetVoteBitmask`, `AddPeer`, `AddPeerSlot`,
+        `GetFirstAvailableSlot`, dichiarazioni senza corpo); stampe di debug a istanti fissi sostituite
+        dall'opzione `--verbose` (0 silenzioso, 1 eventi = default, 2 debug)
   - [ ] `viwer.py`: terminatori di riga Windows (CRLF); geofence disegnato in 3D ma calcolato in 2D
 - [ ] **Fase 2 – Errori logici che falsano i risultati**
   - [ ] Avvelenamento delle ancore: il nodo che mente viene usato come ancora ⇒ 61 % di falsi allarmi
   - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
   - [ ] Allarme collettivo mai usato (nessuna esclusione del nodo sospetto)
-  - [ ] Slot TDMA scelto dagli ospiti ma non usato per trasmettere; JOINING → ACTIVE senza verifica
+  - [ ] Slot TDMA scelto dagli ospiti ma non usato per trasmettere; JOINING → ACTIVE senza verifica.
+        Visto in 1.2: i droni 12, 13, 17, 18 scelgono tutti lo slot 9 e vengono tutti confermati
+        (il controllo collisioni confronta l'ID del mittente con lo slot, non lo slot con lo slot)
+  - [ ] Uscita dal geofence che scatta due volte per ogni ospite (dopo il goodbye `m_pendingLeave`
+        torna false e lo stato resta ACTIVE): innocuo oggi, ma logica sbagliata
   - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
 - [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti
@@ -94,3 +103,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-09-30 | 0 | infrastruttura | Riproducibilità verificata; baseline su 3 seed |
 | 2026-09-30 | 0 | – | Ambiente di Jacopo (ns-3-dev) identico a ns-3.44: 26/26 metriche uguali |
 | 2026-09-30 | 1.1 | log individual votes | Falsi voti individuali su onesti post-attacco: 58,2 % (seed 1–3). L'avvelenamento delle ancore agisce già nel singolo EKF |
+| 2026-09-30 | 1.2 | clean up dead code, add --verbose | CSV identico byte per byte; output da ~5.000 a 212 righe (livello 1) |

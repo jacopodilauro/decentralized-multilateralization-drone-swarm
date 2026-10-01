@@ -23,7 +23,6 @@ namespace ns3 {
         void SetSenderId (uint32_t id);
         void SetTxTimestampPs (uint64_t timestamp_ps);
         void SetGpsPosition (double x, double y, double z);
-        //void SetVoteBitmask (uint32_t mask);
         void SetImLeaving (bool leaving);
 
         void SetSharedRange(uint32_t targetId, double range);
@@ -34,7 +33,6 @@ namespace ns3 {
         double GetGpsX () const;
         double GetGpsY () const;
         double GetGpsZ () const;
-        //uint32_t GetVoteBitmask () const;
         bool GetImLeaving () const;
         void SetAlarmsList(const std::vector<uint8_t>& alarms);
         std::vector<uint8_t> GetAlarmsList() const;
@@ -51,7 +49,6 @@ namespace ns3 {
         double m_gpsX;
         double m_gpsY;
         double m_gpsZ;
-        uint32_t m_voteBitmask;
         bool m_imLeaving;
 
         std::vector<double> m_sharedRanges;

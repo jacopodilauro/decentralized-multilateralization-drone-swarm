@@ -33,10 +33,11 @@ public:
 
     static TypeId GetTypeId(void);
 
+    // Livello di output a terminale: 0 = silenzioso, 1 = eventi (default), 2 = debug completo
+    static void SetVerbosity(uint32_t level);
+
     void SetActive(bool active);
     void ScheduleLeave();
-    void AddPeer(uint32_t peerId);
-    void AddPeerSlot(uint32_t peerId, uint32_t slotId);
     void RemovePeer(uint32_t peerId);
     void InitSlotMap(const std::vector<uint32_t>& activeIds);
 
@@ -51,20 +52,14 @@ public:
     
     double GetClockOffset() const { return m_clockOffset; }
 
-    uint32_t GetFirstAvailableSlot();
-    bool JoinSwarm(uint32_t newDroneId);
-    void ProcessIncomingPacket(uint32_t senderId, uint32_t slotId);
-    void FinalizeJoin();
 
-    std::map<uint32_t, uint32_t> GetSlotMap() const { return m_slotMap; }
-    void SetSlotMap(const std::map<uint32_t, uint32_t>& newMap) { m_slotMap = newMap; }
 
 private:
 
-    MacState m_macState;
-    bool m_isGuest;
-    uint32_t m_listenCounter;
-    int32_t m_chosenSlot;
+    MacState m_macState     = STATE_ACTIVE;
+    bool     m_isGuest      = false;
+    uint32_t m_listenCounter = 0;
+    int32_t  m_chosenSlot   = -1;
 
     std::map<uint32_t, bool> m_localSlotMap;
     void EvaluateMacState();
@@ -77,17 +72,15 @@ private:
     virtual void StartApplication(void) override;
     virtual void StopApplication(void)  override;
 
-    double m_clockOffset;
+    double m_clockOffset = 0.0;
     std::mt19937 m_rng;
 
     void SendUwbMessage();
     void ReceivePacket(Ptr<Socket> socket);
     void ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec);
     void ReorganizeSlots(uint32_t leavingDroneId);
-    void PrintTerminalDashboard();
 
     Eigen::Vector3d GetCurrentGpsPosition();
-    uint32_t        GetVoteBitmask();
 
     uint32_t        m_id;
     uint32_t        m_slotId;
@@ -125,15 +118,21 @@ private:
     std::map<uint32_t, std::set<uint32_t>> m_peerVotes;
     std::map<uint32_t, int>  m_okCounter;
 
-    std::deque<uint32_t> m_recentLeaves;
     // Mappa: ID del drone che ha chiesto il Leave -> Elenco (Set) di chi ha approvato
     std::map<uint32_t, std::set<uint32_t>> m_pendingLeaves;
     // Mappa: ID del drone sospettato "Morto" -> Elenco (Set) di chi vota per cacciarlo
     std::map<uint32_t, std::set<uint32_t>> m_pendingEvictions;
     // Lista dei droni che IO considero inattivi (da comunicare agli altri)
     std::set<uint32_t> m_myEvictionVotes;
-    // Lista dei droni che IO so voler uscire (da comunicare agli altri, sostituisce m_recentLeaves)
+    // Lista dei droni che IO so voler uscire (da comunicare agli altri)
     std::set<uint32_t> m_myLeaveVotes; 
+
+    // --- Solo per l'output a terminale (non influenzano la simulazione) ---
+    static uint32_t s_verbosity;
+    // Evita che lo stesso evento venga stampato da ogni drone: true solo la prima volta in 1 s
+    static bool AnnounceOnce(char kind, uint32_t droneId, double now);
+    static std::map<std::pair<char, uint32_t>, double> s_lastAnnounce;
+    std::map<uint32_t, uint32_t> m_lastPrintedVoteState;  // per stampare i cambi di voto (livello 2)
 };
 
 #endif

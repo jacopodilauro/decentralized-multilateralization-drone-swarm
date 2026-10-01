@@ -65,6 +65,7 @@ int main(int argc, char *argv[])
     std::string targetsId   = "0";
     std::string csvFileName = "tdma_security_log.csv";
     uint32_t runId = 1;
+    uint32_t verbose = 1;
 
     CommandLine cmd;
     cmd.AddValue("setnDrones",  "Numero di droni base nello sciame", setnDrones);
@@ -78,7 +79,9 @@ int main(int argc, char *argv[])
     cmd.AddValue("csvName",     "File CSV",                          csvFileName);
     cmd.AddValue("netanim",     "Abilita NetAnim",                   netanim);
     cmd.AddValue("runId",       "Replica indipendente",              runId);
+    cmd.AddValue("verbose",     "Output: 0 silenzioso, 1 eventi, 2 debug", verbose);
     cmd.Parse(argc, argv);
+    UwbSecurityApp::SetVerbosity(verbose);
 
     RngSeedManager::SetSeed(12345);
     RngSeedManager::SetRun(runId); 
