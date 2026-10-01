@@ -32,7 +32,6 @@ bool UwbSecurityApp::AnnounceOnce(char kind, uint32_t droneId, double now) {
 // ---------------------------------------------------------------------------
 // Soglia Mahalanobis per allarme spoofing.
 // ---------------------------------------------------------------------------
-static constexpr double MAHAL_ALARM_THRESHOLD = 3.5;
 static constexpr double MAHAL_OK_THRESHOLD    = 2.0;
 static constexpr int    CONSECUTIVE_NEEDED    = 10;
 
@@ -578,8 +577,11 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
 
     double adaptiveThreshold = std::max(2.0, 3.5 * posStd);
 
-    bool suspiciousNow = (mahal  > MAHAL_ALARM_THRESHOLD) ||
-                         (euclError > adaptiveThreshold);
+    // Sospetto se la posizione stimata con i range e' lontana da quella dichiarata (GPS).
+    // La Mahalanobis della misura diretta non entra nella decisione: il suo residuo e' assorbito
+    // dallo stato di bias di clock, quindi non vede lo spoofing e reagisce solo ai picchi NLOS
+    // (resta nel CSV come diagnostica)
+    bool suspiciousNow = (euclError > adaptiveThreshold);
 
     double timeSinceInit = currentTime - m_ekfInitTime[senderId];
     if (timeSinceInit < 2.0 * m_swarmSize * m_slotDuration * 10)

@@ -49,7 +49,7 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step2.5_seed1.json` (1 seed) e `reference/step2.5_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step2.6_seed1.json` (1 seed) e `reference/step2.6_seed1-3.json` (3 seed).
 
 Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
 e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
@@ -111,11 +111,16 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         drone sbagliato (seed 1). Ora TDMA statico slot = ID: 0 voci incoerenti, 0 voti sbagliati
   - [x] 2.5 Uscita dal geofence che scattava due volte: dopo il goodbye la macchina a stati si ferma
   - [x] Allarme collettivo mai usato: ora esclude il drone sospetto dalle ancore (2.4)
+  - [x] 2.6 Mahalanobis tolta dalla decisione (resta nel CSV): causava ~70% dei sospetti falsi e 0% dei
+        rilevamenti, perche' il residuo della misura diretta e' assorbito dal bias di clock. Sospetti
+        istantanei pre-attacco 1,31% -> 0,40%; rilevamento identico
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [ ] Voti non autenticati: un attaccante potrebbe accusare droni onesti per farli escludere
         come ancore (da trattare nel threat model)
-  - [ ] Mahalanobis calcolata solo sulla misura diretta, il cui residuo è assorbito dal bias di clock
-  - [ ] Da indagare: seed 2, ospite 19 con 7.089 falsi allarmi prima dell'attacco (seed 1: 586)
+  - [ ] Falsi allarmi residui (passo 2.6): ospite 19 nei seed 2-3 (episodi lunghi, 57-123 s), drone base 3
+        intorno a 91-94 s in tutti i seed (episodi brevi), ospite 8 a 151-153 s nel seed 2
+  - [ ] Valutare un test chi-quadro sulla discrepanza (stima - GPS) con la covarianza del filtro, al posto
+        della soglia max(2 m, 3,5 x pos_std)
   - [ ] Ogni drone condivide solo i 10 range piu' vicini: con gli ospiti dentro, alcuni range tra
         droni base non vengono piu' condivisi (esperimento E1: senza i range degli ospiti p95 8 m)
   - [ ] `q_acc` unico per droni lenti e veloci: valutare rumore di processo adattivo per drone
@@ -147,3 +152,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.3 | raise ekf process noise | Rispetto a 2.1: base p95 1,31 -> 1,01 m, ospiti mediana 0,72 -> 0,61 m, FA pre-attacco 1,38% -> 0,25%, rilevamento invariato |
 | 2026-10-01 | 2.4 | stop using alarmed drones as anchors | FA onesti->onesti post 60% -> 0%; pre-attacco e rilevamento invariati |
 | 2026-10-01 | 2.5 | static tdma slots, single leave | Collisioni finte 9 -> 0, uscite avviate 24 -> 12, voti mal attribuiti 3.833 -> 0; metriche invariate |
+| 2026-10-01 | 2.6 | drop mahalanobis from the decision | Sospetti istantanei pre-attacco 1,31% -> 0,40%; allarmi e rilevamento quasi invariati |
