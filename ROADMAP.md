@@ -117,8 +117,11 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [ ] `setSpeed`, `setScenary`, `t_join`, `t_leave` passati ma ignorati da `Trajectories.cpp`
   - [ ] Voti non autenticati: un attaccante potrebbe accusare droni onesti per farli escludere
         come ancore (da trattare nel threat model)
-  - [ ] Falsi allarmi residui (passo 2.6): ospite 19 nei seed 2-3 (episodi lunghi, 57-123 s), drone base 3
-        intorno a 91-94 s in tutti i seed (episodi brevi), ospite 8 a 151-153 s nel seed 2
+  - [x] Falsi allarmi residui (ospite 19 e altri): causati dagli offset degli orologi. Il range k->j contiene
+        (offset_k - offset_j) c e il filtro tratta i range condivisi come senza bias: tutti i range verso j
+        hanno lo stesso errore fisso. Correlazione offset/errore di stima -0,95 su 36 ospiti (3 seed);
+        oracolo senza offset: falsi allarmi pre-attacco 0%, errore base mediano 0,39 -> 0,25 m.
+        Soluzione: Fase 4 (orologi realistici + DS-TWR), anticipata
   - [ ] Valutare un test chi-quadro sulla discrepanza (stima - GPS) con la covarianza del filtro, al posto
         della soglia max(2 m, 3,5 x pos_std)
   - [ ] Ogni drone condivide solo i 10 range piu' vicini: con gli ospiti dentro, alcuni range tra
@@ -127,7 +130,15 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
   - [ ] Ricontrollare la sensibilita' con attacchi piu' lenti/sottili dopo l'aumento di `q_acc`
 - [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm;
       valutare qui un'allocazione dinamica degli slot con collisioni vere
-- [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti
+- [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti (anticipata)
+  - [x] 4.1 `ClockModel.h` (contatore 40 bit, tick 15,65 ps, offset casuale, skew +-20 ppm, jitter) e
+        `DsTwr.h` (DS-TWR asimmetrico, differenze modulo 2^40). Test `tests/test_dstwr.cc`:
+        fermi 1,2 mm RMS; ToA a una via con gli stessi orologi >= 468 km di errore; azzeramento del
+        contatore gestito. In movimento il risultato e' la distanza all'istante del MESSAGGIO CENTRALE
+        (2-3 mm anche a 15 m/s); riferita a meta' intervallo sbaglierebbe fino a 33 cm.
+        Costo: eta' alla condivisione = 1 frame esatto (oggi in media mezzo frame), +0,05 s
+  - [ ] 4.2 Timestamp nei pacchetti (tx + ricezioni dai vicini, ~7 byte per vicino)
+  - [ ] 4.3 Range dal DS-TWR nel simulatore, istante di misura = messaggio centrale; confronto con 2.6
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
 - [ ] **Fase 6 – Ricevitore GNSS** (satelliti, pseudodistanze, minimi quadrati per posizione e clock bias)
 - [ ] **Fase 7 – Spoofer esterno** (posizione, attivazione, cattura dei droni)
@@ -153,3 +164,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.4 | stop using alarmed drones as anchors | FA onesti->onesti post 60% -> 0%; pre-attacco e rilevamento invariati |
 | 2026-10-01 | 2.5 | static tdma slots, single leave | Collisioni finte 9 -> 0, uscite avviate 24 -> 12, voti mal attribuiti 3.833 -> 0; metriche invariate |
 | 2026-10-01 | 2.6 | drop mahalanobis from the decision | Sospetti istantanei pre-attacco 1,31% -> 0,40%; allarmi e rilevamento quasi invariati |
+| 2026-10-02 | 4.1 | add uwb clock model and ds-twr | Test isolato superato; nessuna modifica al simulatore |
