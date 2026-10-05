@@ -16,6 +16,8 @@ public:
         bool            is_los;      
         double          range = 0.0;
         double          delay = 0.0;   // [s] la misura e' stata presa 'delay' secondi fa
+        bool            clock_bias = true;   // misura diretta: true = ToA a una via con bias di clock,
+                                             // false = distanza gia' priva di bias (DS-TWR)
         Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true) {}
     };
 

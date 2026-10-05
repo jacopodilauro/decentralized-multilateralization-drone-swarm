@@ -32,6 +32,18 @@ namespace ns3 {
         double GetSharedRange(uint32_t targetId) const;
         double GetSharedRangeAge(uint32_t targetId) const;   // -1 se il range non c'e'
 
+        // --- DS-TWR (presenti nel pacchetto solo se SetDsTwrMode(true)) ---
+        // Ricezione riportata: ho ricevuto il pacchetto 'seq' del drone 'id' all'istante 'rxStamp' (mio orologio)
+        // los: la ricezione era in vista diretta (diagnostica del primo cammino del chip UWB)
+        struct RxReport { uint32_t id; uint8_t seq; uint64_t rxStamp; bool los = true; };
+        static void SetDsTwrMode(bool on) { s_dsTwr = on; }
+        static bool DsTwrMode() { return s_dsTwr; }
+        void SetUwbTx(uint8_t seq, uint64_t txStamp) { m_seq = seq; m_uwbTxStamp = txStamp; }
+        uint8_t  GetSeq() const { return m_seq; }
+        uint64_t GetUwbTxStamp() const { return m_uwbTxStamp; }
+        void SetRxReports(const std::vector<RxReport>& r) { m_rxReports = r; }
+        const std::vector<RxReport>& GetRxReports() const { return m_rxReports; }
+
         uint32_t GetSenderId () const;
         uint64_t GetTxTimestampPs () const;
         double GetGpsX () const;
@@ -59,6 +71,13 @@ namespace ns3 {
         // Sul pacchetto: 1 byte = numero di range, poi per ognuno 2 byte ID + 4 byte range in mm
         // + 2 byte eta' in decimi di millisecondo (max 6.5535 s).
         std::map<uint32_t, std::pair<double, double>> m_sharedRanges;
+
+        // DS-TWR: 1 byte seq + 5 byte timestamp di trasmissione + 1 byte numero di ricezioni
+        // + per ciascuna 2 byte ID + 1 byte (7 bit seq + 1 bit LOS) + 5 byte timestamp di ricezione
+        static inline bool s_dsTwr = false;
+        uint8_t  m_seq = 0;
+        uint64_t m_uwbTxStamp = 0;
+        std::vector<RxReport> m_rxReports;
         std::vector<uint8_t> m_alarmsList;
         std::vector<uint32_t> m_gossipLeaves;
         std::vector<uint32_t> m_gossipEvictions;

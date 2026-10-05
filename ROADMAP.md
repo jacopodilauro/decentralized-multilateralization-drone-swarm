@@ -35,6 +35,10 @@ NS3_PREFIX=/percorso/ns3 NS3_VER=3.44 tools/build_standalone.sh sim
 SIM=./sim tools/run_seeds.sh <etichetta>
 
 # output a terminale: --verbose=0 (silenzioso), 1 (eventi, default), 2 (debug completo)
+# ranging: --ranging=dstwr (default, orologi realistici) oppure --ranging=toa (modello storico)
+
+# test isolati (EKF e DS-TWR sempre; header e canale se NS3_PREFIX e' impostato)
+tools/run_tests.sh
 
 # confronto con il passo precedente
 python3 tools/compare.py runs/<prima>/summary.json runs/<dopo>/summary.json
@@ -49,7 +53,7 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step2.6_seed1.json` (1 seed) e `reference/step2.6_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step4.3_seed1.json` (1 seed) e `reference/step4.3_seed1-3.json` (3 seed).
 
 Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
 e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
@@ -137,8 +141,18 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         contatore gestito. In movimento il risultato e' la distanza all'istante del MESSAGGIO CENTRALE
         (2-3 mm anche a 15 m/s); riferita a meta' intervallo sbaglierebbe fino a 33 cm.
         Costo: eta' alla condivisione = 1 frame esatto (oggi in media mezzo frame), +0,05 s
-  - [ ] 4.2 Timestamp nei pacchetti (tx + ricezioni dai vicini, ~7 byte per vicino)
-  - [ ] 4.3 Range dal DS-TWR nel simulatore, istante di misura = messaggio centrale; confronto con 2.6
+  - [x] 4.2 Timestamp nei pacchetti (solo in modalita' DS-TWR): seq 7 bit, timestamp di trasmissione 40 bit,
+        per ogni vicino ID + seq + bit LOS + istante di ricezione (8 byte). Con 20 droni 132 -> 291 byte
+  - [x] 4.3 DS-TWR nel simulatore, ora predefinito (`--ranging=dstwr`; il modello storico resta con
+        `--ranging=toa`, identico byte per byte al passo 2.6). Distanze verificate contro la verita':
+        LOS errore medio 0,03 cm, dev. std 7,1 cm. Su 3 seed rispetto al 2.6: errore base p95 1,01 ->
+        0,77 m, falsi allarmi collettivi pre-attacco 0,19% -> 0,034%, rilevamento invariato, risultati
+        non piu' dipendenti dagli orologi del seed
+  - [ ] Il bit LOS dei timestamp e' ideale (viene dal canale): un rilevatore NLOS reale sbaglia a volte
+  - [ ] Scalabilita': il pacchetto cresce di 8 byte per vicino; con sciami grandi limitare a k vicini
+  - [ ] Falsi allarmi residui (4.3): ospite 19 nel seed 1, drone base 3 nel seed 3 (episodi brevi)
+  - [ ] Offset tra gli orologi dai timestamp DS-TWR (servono per localizzare lo spoofer)
+  - [ ] Su droni reali: collegare orologio GNSS e orologio UWB (impulso PPS registrato dal chip UWB)
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
 - [ ] **Fase 6 – Ricevitore GNSS** (satelliti, pseudodistanze, minimi quadrati per posizione e clock bias)
 - [ ] **Fase 7 – Spoofer esterno** (posizione, attivazione, cattura dei droni)
@@ -165,3 +179,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.5 | static tdma slots, single leave | Collisioni finte 9 -> 0, uscite avviate 24 -> 12, voti mal attribuiti 3.833 -> 0; metriche invariate |
 | 2026-10-01 | 2.6 | drop mahalanobis from the decision | Sospetti istantanei pre-attacco 1,31% -> 0,40%; allarmi e rilevamento quasi invariati |
 | 2026-10-02 | 4.1 | add uwb clock model and ds-twr | Test isolato superato; nessuna modifica al simulatore |
+| 2026-10-02 | 4.2-4.3 | ds-twr ranging in the simulator | Orologi realistici; FA collettivi pre-attacco -82%, errore base p95 -24% |

@@ -101,6 +101,32 @@ int main()
         CHECK(o.GetSharedRange(1) == 5.0 && o.GetSharedRange(3) == 7.0, "range invariati");
     }
 
+    // DS-TWR: campi presenti solo in modalita' DS-TWR, timestamp a 40 bit, 7 bit di seq + 1 bit LOS
+    {
+        std::printf("[campi DS-TWR]\n");
+        UwbHeader h;
+        h.SetSenderId(3);
+        h.SetSharedRange(1, 5.0, 0.1);
+        uint32_t sizeClassic = h.GetSerializedSize();
+        UwbHeader::SetDsTwrMode(true);
+        const uint64_t MAX40 = (1ULL << 40) - 1;
+        h.SetUwbTx(127, MAX40);
+        h.SetRxReports({{0, 5, 123456789012ULL, true}, {19, 127, MAX40, false}, {65535, 0, 0, true}});
+        uint32_t w = 0;
+        UwbHeader o = RoundTrip(h, &w);
+        CHECK(w == sizeClassic + 1 + 5 + 1 + 3 * 8, "dimensione = classica + 7 byte + 8 byte per ricezione");
+        CHECK(o.GetSeq() == 127 && o.GetUwbTxStamp() == MAX40, "seq e timestamp di trasmissione (40 bit)");
+        const auto& r = o.GetRxReports();
+        CHECK(r.size() == 3, "tre ricezioni riportate");
+        CHECK(r.size() == 3 && r[0].id == 0 && r[0].seq == 5 && r[0].rxStamp == 123456789012ULL && r[0].los, "ricezione 0");
+        CHECK(r.size() == 3 && r[1].id == 19 && r[1].seq == 127 && r[1].rxStamp == MAX40 && !r[1].los, "ricezione 1 (NLOS, valori massimi)");
+        CHECK(r.size() == 3 && r[2].id == 65535 && r[2].rxStamp == 0, "ricezione 2 (ID massimo)");
+        CHECK(o.GetSharedRange(1) == 5.0, "i campi classici restano corretti");
+        UwbHeader::SetDsTwrMode(false);
+        CHECK(h.GetSerializedSize() == sizeClassic, "in modalita' classica la dimensione non cambia");
+        std::printf("  pacchetto con 3 ricezioni: %u byte (classico %u)\n", w, sizeClassic);
+    }
+
     // Sovrascrittura: l'ultimo valore impostato vince
     {
         std::printf("[sovrascrittura dello stesso ID]\n");

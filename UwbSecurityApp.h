@@ -8,6 +8,7 @@
 #include "UWBChannel.h"
 #include "UwbHeader.h"
 #include "EKF.h"
+#include "ClockModel.h"
 #include "random"
 
 #include <Eigen/Dense>
@@ -36,6 +37,9 @@ public:
 
     // Livello di output a terminale: 0 = silenzioso, 1 = eventi (default), 2 = debug completo
     static void SetVerbosity(uint32_t level);
+    // Ranging: false = ToA a una via (orologi quasi sincronizzati, modello storico),
+    //          true  = DS-TWR dai broadcast TDMA con orologi UWB realistici
+    static void SetRangingDsTwr(bool on);
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -78,7 +82,8 @@ private:
 
     void SendUwbMessage();
     void ReceivePacket(Ptr<Socket> socket);
-    void ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec);
+    void ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec,
+                        const UwbHeader& header);
     void ReorganizeSlots(uint32_t leavingDroneId);
 
     Eigen::Vector3d GetCurrentGpsPosition();
@@ -134,6 +139,16 @@ private:
     // Evita che lo stesso evento venga stampato da ogni drone: true solo la prima volta in 1 s
     static bool AnnounceOnce(char kind, uint32_t droneId, double now);
     static std::map<std::pair<char, uint32_t>, double> s_lastAnnounce;
+    // --- DS-TWR ---
+    static bool s_rangingDsTwr;
+    uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone
+    std::mt19937    m_clockRng;          // rumore dei timestamp (separato dal rumore GPS)
+    uint8_t         m_txSeq = 0;
+    struct TxRec { uint64_t stamp; double tGlobal; Eigen::Vector3d gps; };
+    std::map<uint8_t, TxRec> m_txHistory;            // mie trasmissioni recenti, per numero di sequenza
+    struct RxRec { uint8_t seq; uint64_t txStamp; uint64_t rxStamp; double txGlobal; double rxGlobal; bool los; };
+    std::map<uint32_t, RxRec> m_lastRx;              // ultimo pacchetto ricevuto da ciascun vicino
+
     std::map<uint32_t, bool> m_collectiveAlarm;   // mio allarme collettivo su ciascun drone
     std::map<uint32_t, uint32_t> m_lastPrintedVoteState;  // per stampare i cambi di voto (livello 2)
 };

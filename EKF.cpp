@@ -82,10 +82,15 @@ void EKF::Update(const vector<Msmnt>& measurements) {
         H(i, 4) = -m.delay * u.y();
         H(i, 5) = -m.delay * u.z();
 
-        if (m.is_direct) {
+        if (m.is_direct && m.clock_bias) {
             Z(i)    = (m.toa - m.tx_timestamp) * c;
             h(i)    = geo_dist + est_bias;
             H(i, 6) = 1.0;
+            R(i, i) = m.is_los ? 0.09 : 0.36;
+        } else if (m.is_direct) {          // distanza DS-TWR misurata da me: niente bias di clock
+            Z(i)    = m.range;
+            h(i)    = geo_dist;
+            H(i, 6) = 0.0;
             R(i, i) = m.is_los ? 0.09 : 0.36;
         } else {
             Z(i)    = m.range;

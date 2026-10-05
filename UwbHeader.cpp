@@ -45,6 +45,7 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += 1;
     size += (m_sharedRanges.size() * 8);
 
+    if (s_dsTwr) size += 1 + 5 + 1 + m_rxReports.size() * 8;
     return size;
 }
 
@@ -87,6 +88,20 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
         double age_units = std::round(std::max(0.0, ra.second) * 1e4);   // decimi di ms
         start.WriteHtonU16(static_cast<uint16_t>(std::min(age_units, 65535.0)));
     }
+    if (s_dsTwr) {
+        NS_ASSERT_MSG(m_rxReports.size() <= 255, "UwbHeader: troppe ricezioni riportate");
+        start.WriteU8(m_seq & 0x7F);
+        start.WriteU8(static_cast<uint8_t>(m_uwbTxStamp >> 32));
+        start.WriteHtonU32(static_cast<uint32_t>(m_uwbTxStamp & 0xFFFFFFFFULL));
+        start.WriteU8(static_cast<uint8_t>(m_rxReports.size()));
+        for (const auto& r : m_rxReports) {
+            NS_ASSERT_MSG(r.id <= 0xFFFF, "UwbHeader: ID oltre 65535");
+            start.WriteHtonU16(static_cast<uint16_t>(r.id));
+            start.WriteU8(static_cast<uint8_t>((r.seq & 0x7F) | (r.los ? 0x80 : 0x00)));
+            start.WriteU8(static_cast<uint8_t>(r.rxStamp >> 32));
+            start.WriteHtonU32(static_cast<uint32_t>(r.rxStamp & 0xFFFFFFFFULL));
+        }
+    }
 }
 
 uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
@@ -124,6 +139,24 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
         uint16_t age_units = start.ReadNtohU16();
         m_sharedRanges[targetId] = { static_cast<double>(range_mm) / 1000.0, age_units / 1e4 };
     }
+    m_rxReports.clear();
+    if (s_dsTwr) {
+        m_seq = start.ReadU8();
+        uint64_t hi = start.ReadU8();
+        m_uwbTxStamp = (hi << 32) | start.ReadNtohU32();
+        uint8_t n = start.ReadU8();
+        for (uint8_t k = 0; k < n; k++) {
+            RxReport r;
+            r.id  = start.ReadNtohU16();
+            uint8_t b = start.ReadU8();
+            r.seq = b & 0x7F;
+            r.los = (b & 0x80) != 0;
+            uint64_t h2 = start.ReadU8();
+            r.rxStamp = (h2 << 32) | start.ReadNtohU32();
+            m_rxReports.push_back(r);
+        }
+    }
+
     return GetSerializedSize (); 
 }
 

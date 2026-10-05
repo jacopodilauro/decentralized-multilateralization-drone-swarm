@@ -68,6 +68,7 @@ int main(int argc, char *argv[])
     uint32_t runId = 1;
     uint32_t verbose = 1;
     double qAcc = 2.0;
+    std::string ranging = "dstwr";
 
     CommandLine cmd;
     cmd.AddValue("setnDrones",  "Numero di droni base nello sciame", setnDrones);
@@ -83,9 +84,12 @@ int main(int argc, char *argv[])
     cmd.AddValue("runId",       "Replica indipendente",              runId);
     cmd.AddValue("verbose",     "Output: 0 silenzioso, 1 eventi, 2 debug", verbose);
     cmd.AddValue("qAcc",        "Rumore di processo EKF (accelerazione)", qAcc);
+    cmd.AddValue("ranging",     "dstwr (orologi realistici) oppure toa (modello storico)", ranging);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
+    if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging deve essere dstwr o toa" << std::endl; return 1; }
+    UwbSecurityApp::SetRangingDsTwr(ranging == "dstwr");
 
     RngSeedManager::SetSeed(12345);
     RngSeedManager::SetRun(runId); 

@@ -1,4 +1,5 @@
 #include "UwbSecurityApp.h"
+#include "DsTwr.h"
 #include "UwbHeader.h"
 #include "SimulationLogger.h"
 
@@ -17,6 +18,9 @@ NS_LOG_COMPONENT_DEFINE ("UwbSecurityApp");
 NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 
 uint32_t UwbSecurityApp::s_verbosity = 1;
+bool UwbSecurityApp::s_rangingDsTwr = false;
+
+void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
 std::map<std::pair<char, uint32_t>, double> UwbSecurityApp::s_lastAnnounce;
 
 void UwbSecurityApp::SetVerbosity(uint32_t level) { s_verbosity = level; }
@@ -72,6 +76,19 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
 m_rng.seed(seq);
     std::uniform_real_distribution<double> dist_offset(-1e-9, 1e-9);
     m_clockOffset = dist_offset(m_rng);
+
+    if (s_rangingDsTwr) {
+        // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
+        // di ranging e' tutta nell'orologio UWB, con offset su tutto il contatore e skew +-20 ppm
+        m_clockOffset = 0.0;
+        std::seed_seq cseq{ (uint32_t)(base & 0xFFFFFFFFu), (uint32_t)(base >> 32), m_id, 0xC10CC10Cu };
+        m_clockRng.seed(cseq);
+        std::uniform_real_distribution<double> ppm(-20.0, 20.0);
+        std::uniform_int_distribution<uint64_t> off(0, uwbclock::WRAP - 1);
+        double skew = ppm(m_clockRng);
+        uint64_t offset = off(m_clockRng);
+        m_uwbClock = uwbclock::Clock(skew, offset, 10e-12);
+    }
 }
 
 void UwbSecurityApp::SetMalicious(bool isMalicious) {
@@ -153,6 +170,20 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
     header.SetImLeaving(m_imLeaving);
+
+    if (s_rangingDsTwr) {
+        // Timestamp UWB di trasmissione + istanti in cui ho ricevuto l'ultimo pacchetto di ciascun vicino
+        uint64_t txStamp = m_uwbClock.Stamp(now, m_clockRng);
+        header.SetUwbTx(m_txSeq, txStamp);
+        std::vector<UwbHeader::RxReport> reports;
+        for (const auto& [peer, rx] : m_lastRx)
+            if (now - rx.rxGlobal <= MaxRangeAge()) reports.push_back({peer, rx.seq, rx.rxStamp, rx.los});
+        header.SetRxReports(reports);
+        m_txHistory[m_txSeq] = { txStamp, now, myGps };
+        for (auto it = m_txHistory.begin(); it != m_txHistory.end(); )
+            it = (now - it->second.tGlobal > 2.0) ? m_txHistory.erase(it) : std::next(it);
+        m_txSeq = (m_txSeq + 1) & 0x7F;   // 7 bit: 128 valori, la storia copre 2 s
+    }
     
     // Pulizia dei timeout per gli EKF vecchi
     for (auto it = m_lastKnownTime.begin(); it != m_lastKnownTime.end(); ++it) {
@@ -461,11 +492,12 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             }
         }
 
-        ProcessRanging(senderId, claimedGps, txTimeSec);
+        ProcessRanging(senderId, claimedGps, txTimeSec, header);
     }
 }
 
-void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec)
+void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGps, double txTimeSec,
+                                    const UwbHeader& header)
 {
     double currentTime = Simulator::Now().GetSeconds();
 
@@ -491,10 +523,52 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     double tof_true = distTrue / c;
     double trueGlobalRxTime = trueGlobalTxTime + tof_true + (cond.ranging_error_m / c);
     double measuredToa = trueGlobalRxTime + m_clockOffset;
-    double myMeasuredRange = (measuredToa - txTimeSec) * c;
-    m_myLastRanges[senderId]    = myMeasuredRange;
-    m_myLastRangesLos[senderId] = cond.is_los;
-    m_myLastRangeTime[senderId] = currentTime;
+
+    // Misura diretta verso il mittente: valore, istante a cui si riferisce, ancora (mio GPS), LOS
+    double myMeasuredRange = -1.0;
+    bool   haveDirect   = false;
+    double directTime   = currentTime;
+    Eigen::Vector3d directAnchor(0, 0, 0);   // DS-TWR: mio GPS al messaggio centrale (vedi sotto)
+    bool   directLos    = cond.is_los;
+
+    if (!s_rangingDsTwr) {
+        myMeasuredRange = (measuredToa - txTimeSec) * c;   // ToA a una via
+        haveDirect = true;
+    } else {
+        // Il timestamp di ricezione lo produce il mio orologio UWB all'istante vero di arrivo
+        uint64_t rxStamp = m_uwbClock.Stamp(trueGlobalRxTime, m_clockRng);
+        RxRec cur{ header.GetSeq(), header.GetUwbTxStamp(), rxStamp, trueGlobalTxTime, trueGlobalRxTime, cond.is_los };
+        auto prevIt = m_lastRx.find(senderId);
+        if (prevIt != m_lastRx.end()) {
+            const RxRec& prev = prevIt->second;
+            // Scambio A(prev) -> io(seq s) -> A(ora): A mi dice quando ha ricevuto il mio pacchetto s
+            for (const auto& rep : header.GetRxReports()) {
+                if (rep.id != m_id) continue;
+                auto txIt = m_txHistory.find(rep.seq);
+                if (txIt == m_txHistory.end()) break;
+                const TxRec& mine = txIt->second;
+                if (!(prev.txGlobal < mine.tGlobal && mine.tGlobal < trueGlobalTxTime)) break;
+                uwbclock::DsTwrStamps st{ prev.txStamp, rep.rxStamp, cur.txStamp,
+                                          prev.rxStamp, mine.stamp, rxStamp };
+                double r = uwbclock::DsTwrRange(st);
+                if (r > 0.0 && r < 1000.0) {
+                    myMeasuredRange = r;
+                    haveDirect   = true;
+                    directTime   = mine.tGlobal;   // al primo ordine e' la distanza al messaggio centrale
+                    directAnchor = mine.gps;
+                    directLos    = prev.los && cur.los && rep.los;   // LOS solo se tutte e tre le ricezioni lo sono
+                }
+                break;
+            }
+        }
+        m_lastRx[senderId] = cur;
+    }
+
+    if (haveDirect) {
+        m_myLastRanges[senderId]    = myMeasuredRange;
+        m_myLastRangesLos[senderId] = directLos;
+        m_myLastRangeTime[senderId] = directTime;
+    }
 
     if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
         m_ekfBank[senderId].Init(claimedGps);
@@ -512,13 +586,24 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
 
     std::vector<EKF::Msmnt> inputData;
 
-    EKF::Msmnt myData;
-    myData.anchor_pos   = GetCurrentGpsPosition();
-    myData.toa          = measuredToa;
-    myData.tx_timestamp = txTimeSec;
-    myData.is_direct    = true;
-    myData.is_los       = cond.is_los;
-    inputData.push_back(myData);
+    if (!s_rangingDsTwr) {
+        EKF::Msmnt myData;
+        myData.anchor_pos   = GetCurrentGpsPosition();   // qui, come prima: l'ordine delle estrazioni GPS conta
+        myData.toa          = measuredToa;
+        myData.tx_timestamp = txTimeSec;
+        myData.is_direct    = true;
+        myData.is_los       = cond.is_los;
+        inputData.push_back(myData);
+    } else if (haveDirect) {
+        EKF::Msmnt myData;
+        myData.anchor_pos   = directAnchor;
+        myData.is_direct    = true;
+        myData.clock_bias   = false;            // DS-TWR: distanza gia' priva di offset di orologio
+        myData.range        = myMeasuredRange;
+        myData.delay        = std::max(0.0, currentTime - directTime);
+        myData.is_los       = directLos;
+        inputData.push_back(myData);
+    }
 
     double maxAge = MaxRangeAge();
 
@@ -737,6 +822,7 @@ void UwbSecurityApp::RemovePeer(uint32_t peerId) {
     m_networkRangeTimes.erase(peerId);
     m_networkRangesLos.erase(peerId);
     m_collectiveAlarm.erase(peerId);
+    m_lastRx.erase(peerId);
     if (peerId < m_myLastRanges.size()) {   // non condivido piu' il mio range verso chi e' uscito
         m_myLastRanges[peerId]    = -1.0;
         m_myLastRangeTime[peerId] = -1.0;
