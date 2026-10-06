@@ -46,6 +46,7 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += (m_sharedRanges.size() * 8);
 
     if (s_dsTwr) size += 1 + 5 + 1 + m_rxReports.size() * 8;
+    if (s_gnssAcc) size += 4;
     return size;
 }
 
@@ -102,6 +103,7 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
             start.WriteHtonU32(static_cast<uint32_t>(r.rxStamp & 0xFFFFFFFFULL));
         }
     }
+    if (s_gnssAcc) { start.WriteHtonU16(m_hAccCm); start.WriteHtonU16(m_vAccCm); }
 }
 
 uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
@@ -156,6 +158,8 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
             m_rxReports.push_back(r);
         }
     }
+
+    if (s_gnssAcc) { m_hAccCm = start.ReadNtohU16(); m_vAccCm = start.ReadNtohU16(); }
 
     return GetSerializedSize (); 
 }

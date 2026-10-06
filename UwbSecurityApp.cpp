@@ -20,6 +20,7 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 uint32_t UwbSecurityApp::s_verbosity = 1;
 bool UwbSecurityApp::s_rangingDsTwr = false;
 std::shared_ptr<gnss::Constellation> UwbSecurityApp::s_constellation = nullptr;
+double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta', 99.9%
 void UwbSecurityApp::SetGnssConstellation(std::shared_ptr<gnss::Constellation> c) { s_constellation = std::move(c); }
 
 void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
@@ -175,6 +176,7 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetSenderId(m_id);
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
+    if (m_gnss) header.SetGpsAcc(m_lastGnssFix.hAccM, m_lastGnssFix.vAccM);
     header.SetImLeaving(m_imLeaving);
 
     if (s_rangingDsTwr) {
@@ -668,11 +670,23 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
 
     double adaptiveThreshold = std::max(2.0, 3.5 * posStd);
 
+    // Test chi-quadro: d2 = e' S^-1 e, con e = stima - GPS dichiarato e
+    // S = covarianza del filtro + errore GPS individuale del mittente + errore GPS delle ancore.
+    // Il secondo termine compare due volte: l'errore delle ancore e' lento (multipath ~10 s), il filtro
+    // non lo media e la sua covarianza lo sottostima. Con questo termine la media di d2 e' ~3 (calibrata)
+    Eigen::Vector3d gpsSig = m_gnss ? Eigen::Vector3d(header.GetGpsHAcc(), header.GetGpsHAcc(), header.GetGpsVAcc())
+                                    : Eigen::Vector3d(0.2, 0.2, 0.4);   // modello GPS storico
+    Eigen::Matrix3d S = m_ekfBank[senderId].GetPositionCovariance();
+    S += 2.0 * gpsSig.cwiseProduct(gpsSig).asDiagonal();
+    Eigen::Vector3d eVec = estimatedPos - claimedGps;
+    double gpsChi2 = eVec.dot(S.ldlt().solve(eVec));
+
     // Sospetto se la posizione stimata con i range e' lontana da quella dichiarata (GPS).
     // La Mahalanobis della misura diretta non entra nella decisione: il suo residuo e' assorbito
     // dallo stato di bias di clock, quindi non vede lo spoofing e reagisce solo ai picchi NLOS
     // (resta nel CSV come diagnostica)
-    bool suspiciousNow = (euclError > adaptiveThreshold);
+    // Con il ricevitore GNSS: test chi-quadro. Con il GPS storico: soglia storica (regressione)
+    bool suspiciousNow = m_gnss ? (gpsChi2 > s_chi2Thr) : (euclError > adaptiveThreshold);
 
     double timeSinceInit = currentTime - m_ekfInitTime[senderId];
     if (timeSinceInit < 2.0 * m_swarmSize * m_slotDuration * 10)
@@ -739,7 +753,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
             currentActiveNodes, peerVoteCount,
-            myVote, suspiciousNow, mahal, posStd);
+            myVote, suspiciousNow, mahal, posStd, gpsChi2);
 
         // Stampa solo quando cambia il voto individuale o l'allarme collettivo di questo osservatore
         uint32_t voteState = myVote * 2u + (collectiveAlarm ? 1u : 0u);

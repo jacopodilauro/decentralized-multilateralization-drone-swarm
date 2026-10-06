@@ -92,6 +92,8 @@ int main(int argc, char *argv[])
     cmd.AddValue("gnssCommon",  "GNSS: errore comune per satellite [m]", gnssP.commonSigmaM);
     cmd.AddValue("gnssMultipath","GNSS: multipath individuale [m]", gnssP.multipathSigM);
     cmd.AddValue("gnssCode",    "GNSS: rumore di codice individuale [m]", gnssP.codeNoiseSigM);
+    double chi2Thr = 16.27;
+    cmd.AddValue("chi2Thr",     "Soglia chi-quadro (3 g.d.l.) con il ricevitore GNSS", chi2Thr);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -106,6 +108,8 @@ int main(int argc, char *argv[])
         // Una sola costellazione per simulazione: e' lei a rendere comune l'errore atmosferico tra i droni
         uint64_t gseed = RngSeedManager::GetSeed() * 6364136223846793005ULL + RngSeedManager::GetRun() + 0x6E55ULL;
         UwbSecurityApp::SetGnssConstellation(std::make_shared<gnss::Constellation>(gnssP, gseed));
+        UwbHeader::SetGnssAccMode(true);
+        UwbSecurityApp::SetChi2Threshold(chi2Thr);
     }
 
     std::cout << "--- Start Simulation Distry MLAT-26 (Decentralized Edition) ---" << std::endl;
@@ -119,7 +123,7 @@ int main(int argc, char *argv[])
                    "est_x,est_y,est_z,claim_x,claim_y,claim_z,"
                    "true_x,true_y,true_z,discrepancy,estimation_error,alarm,"
                    "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes,"
-                   "my_vote,suspicious_now,mahal,pos_std\n";
+                   "my_vote,suspicious_now,mahal,pos_std,gps_chi2\n";
     }
 
     std::ofstream gtFile("ground_truth.csv");

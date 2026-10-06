@@ -163,7 +163,16 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         quadrati per posizione e clock bias. Test `tests/test_gnss.cc`: esatto senza errori; assoluto orizz.
         2,6 m (p95 4,7), relativo tra droni a 20 m 0,70 m (p95 1,6), clock bias 1,3 m. Opzione
         `--gnss=receiver` (default ancora `simple`, identico al 4.3); parametri `--gnssCommon/Multipath/Code`
-  - [ ] 6.2 Con `--gnss=receiver` i falsi allarmi esplodono (collettivi pre-attacco 10,3% +-13, seed 1 25%):
+  - [~] 6.2 (in corso) Test chi-quadro implementato e attivo solo con `--gnss=receiver` (default invariato):
+        d2 = e' S^-1 e, S = P filtro + 2 x accuratezza GPS individuale (trasmessa nel pacchetto, 4 byte);
+        colonna `gps_chi2` nel CSV; soglia `--chi2Thr` (default 16,27). Seed 1: media d2 3,28 (calibrata),
+        ma 1,3% oltre soglia (atteso 0,1%), FA collettivi pre-attacco 1,7% (prima 25%), latenza 4,6 s.
+        CAUSA delle code: il multipath CORRELATO (10 s) delle ancore. Esperimenti seed 1: solo errore comune
+        -> stima base p95 0,67 m, FA 0,05%; senza multipath -> 1,70 m, 0,05%; solo errori individuali ->
+        5,42 m, 1,7%. L'effetto si amplifica con gli ospiti nello sciame (meccanismo da dimostrare).
+        Prossimo: incertezza GPS di ogni ancora nella varianza di ciascuna misura (R_i) e gestione
+        dell'errore lento; poi `receiver` di default.
+  - [ ] (vecchia nota 6.2) Con `--gnss=receiver` i falsi allarmi esplodono (collettivi pre-attacco 10,3% +-13, seed 1 25%):
         la soglia max(2 m, 3,5 pos_std) e' tarata su un GPS con errore relativo ~0,3 m; quello realistico
         e' ~0,8 m (code 2-4 m), ~75% dei sospetti dominati dalla quota. Serve un test chi-quadro che usi
         covarianza del filtro + accuratezza dichiarata dal GPS (orizz./vert.), poi `receiver` di default
@@ -196,3 +205,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-02 | 4.2-4.3 | ds-twr ranging in the simulator | Orologi realistici; FA collettivi pre-attacco -82%, errore base p95 -24% |
 | 2026-10-05 | – | roadmap order, ignore paper notes | Note private per il paper in PAPER_NOTES.md (non su GitHub) |
 | 2026-10-05 | 6.1 | add gnss receiver model (off by default) | Ricevitore testato; attivo rivela che la soglia di sospetto non regge un GPS realistico |
+| 2026-10-05 | 6.2 (parziale) | chi-square gnss test (receiver mode) | Media calibrata; code dal multipath correlato delle ancore |

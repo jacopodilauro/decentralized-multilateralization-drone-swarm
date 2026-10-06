@@ -3,6 +3,8 @@
 
 #include "ns3/header.h"
 #include <map>
+#include <cmath>
+#include <algorithm>
 #include <vector>
 #include <iostream>
 
@@ -37,6 +39,12 @@ namespace ns3 {
         // los: la ricezione era in vista diretta (diagnostica del primo cammino del chip UWB)
         struct RxReport { uint32_t id; uint8_t seq; uint64_t rxStamp; bool los = true; };
         static void SetDsTwrMode(bool on) { s_dsTwr = on; }
+        // Accuratezza dichiarata dal GPS (orizz./vert., in cm): presente solo se SetGnssAccMode(true)
+        static void SetGnssAccMode(bool on) { s_gnssAcc = on; }
+        void SetGpsAcc(double hAccM, double vAccM) { m_hAccCm = ToCm(hAccM); m_vAccCm = ToCm(vAccM); }
+        double GetGpsHAcc() const { return m_hAccCm / 100.0; }
+        double GetGpsVAcc() const { return m_vAccCm / 100.0; }
+        static uint16_t ToCm(double m) { double c = std::round(m * 100.0); return (uint16_t)std::min(65535.0, std::max(1.0, c)); }
         static bool DsTwrMode() { return s_dsTwr; }
         void SetUwbTx(uint8_t seq, uint64_t txStamp) { m_seq = seq; m_uwbTxStamp = txStamp; }
         uint8_t  GetSeq() const { return m_seq; }
@@ -75,6 +83,8 @@ namespace ns3 {
         // DS-TWR: 1 byte seq + 5 byte timestamp di trasmissione + 1 byte numero di ricezioni
         // + per ciascuna 2 byte ID + 1 byte (7 bit seq + 1 bit LOS) + 5 byte timestamp di ricezione
         static inline bool s_dsTwr = false;
+        static inline bool s_gnssAcc = false;
+        uint16_t m_hAccCm = 0, m_vAccCm = 0;
         uint8_t  m_seq = 0;
         uint64_t m_uwbTxStamp = 0;
         std::vector<RxReport> m_rxReports;

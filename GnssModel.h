@@ -89,6 +89,10 @@ struct Fix {
     double          trueClockBiasS = 0.0;  // clock bias vero (solo per verifiche)
     double          residualRmsM = 0.0;
     int             numSats = 0;
+    // Accuratezza INDIVIDUALE (1 sigma) dichiarata dal ricevitore: solo multipath + rumore di codice,
+    // proiettati con la geometria dei satelliti. L'errore comune non c'e': si cancella tra droni vicini
+    double          hAccM = 0.0;           // per asse orizzontale
+    double          vAccM = 0.0;           // verticale
 };
 
 class Receiver {
@@ -143,7 +147,17 @@ public:
             if (dx.head<3>().norm() < 1e-4) break;
         }
         double ss = 0;
-        for (int j = 0; j < n; j++) { double e = rho[j] - ((x.head<3>() - S[j]).norm() + x(3)); ss += e * e; }
+        Eigen::MatrixXd Hs(n, 4);
+        for (int j = 0; j < n; j++) {
+            Eigen::Vector3d d = x.head<3>() - S[j];
+            double e = rho[j] - (d.norm() + x(3)); ss += e * e;
+            Hs.block<1, 3>(j, 0) = (d / d.norm()).transpose(); Hs(j, 3) = 1.0;
+        }
+        Eigen::Matrix4d Gm = (Hs.transpose() * Hs).inverse();          // matrice DOP
+        const Params& p = m_c->P();
+        double sigInd2 = p.multipathSigM * p.multipathSigM + p.codeNoiseSigM * p.codeNoiseSigM;
+        f.hAccM = std::sqrt(sigInd2 * 0.5 * (Gm(0, 0) + Gm(1, 1)));
+        f.vAccM = std::sqrt(sigInd2 * Gm(2, 2));
         f.ok = true;
         f.pos = x.head<3>();
         f.clockBiasS = x(3) / LIGHT_C;

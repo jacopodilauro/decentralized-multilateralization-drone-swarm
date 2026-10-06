@@ -44,6 +44,8 @@ public:
     // GNSS: con una costellazione -> ricevitore simulato (pseudodistanze + minimi quadrati);
     //       con nullptr -> modello storico (posizione vera + rumore bianco)
     static void SetGnssConstellation(std::shared_ptr<gnss::Constellation> c);
+    // Soglia del test chi-quadro (3 gradi di liberta') usata con il ricevitore GNSS
+    static void SetChi2Threshold(double t) { s_chi2Thr = t; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -146,6 +148,7 @@ private:
     // --- DS-TWR ---
     static bool s_rangingDsTwr;
     static std::shared_ptr<gnss::Constellation> s_constellation;
+    static double s_chi2Thr;
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone

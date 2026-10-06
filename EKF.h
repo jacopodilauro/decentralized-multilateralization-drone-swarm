@@ -38,6 +38,7 @@ public:
     Eigen::VectorXd GetState()           const;
     Eigen::MatrixXd GetCovariance()      const;
     double          GetPositionStdDev()  const;
+    Eigen::Matrix3d GetPositionCovariance() const { return m_P.block<3,3>(0,0); }
     double          GetMahalanobisDistance() const;
 
 private:

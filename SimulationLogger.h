@@ -23,7 +23,8 @@ public:
         uint32_t myVote,        // voto individuale (dopo isteresi), quello condiviso nella bitmap
         bool suspiciousNow,     // sospetto istantaneo del singolo campione (prima dell'isteresi)
         double mahal,           // distanza di Mahalanobis calcolata dall'EKF
-        double posStd           // deviazione standard di posizione stimata dall'EKF
+        double posStd,          // deviazione standard di posizione stimata dall'EKF
+        double gpsChi2          // statistica del test chi-quadro (stima contro GPS dichiarato)
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -36,7 +37,7 @@ public:
             << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << ","
             << totalVotes << "," << threshold << "," 
             << activeNodes << "," << peerVotes << ","
-            << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "\n";
+            << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "," << gpsChi2 << "\n";
     }
 };
 
