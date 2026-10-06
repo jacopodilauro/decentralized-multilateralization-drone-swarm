@@ -9,6 +9,7 @@
 #include "UwbHeader.h"
 #include "EKF.h"
 #include "ClockModel.h"
+#include "GnssModel.h"
 #include "random"
 
 #include <Eigen/Dense>
@@ -40,6 +41,9 @@ public:
     // Ranging: false = ToA a una via (orologi quasi sincronizzati, modello storico),
     //          true  = DS-TWR dai broadcast TDMA con orologi UWB realistici
     static void SetRangingDsTwr(bool on);
+    // GNSS: con una costellazione -> ricevitore simulato (pseudodistanze + minimi quadrati);
+    //       con nullptr -> modello storico (posizione vera + rumore bianco)
+    static void SetGnssConstellation(std::shared_ptr<gnss::Constellation> c);
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -141,6 +145,9 @@ private:
     static std::map<std::pair<char, uint32_t>, double> s_lastAnnounce;
     // --- DS-TWR ---
     static bool s_rangingDsTwr;
+    static std::shared_ptr<gnss::Constellation> s_constellation;
+    std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
+    gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone
     std::mt19937    m_clockRng;          // rumore dei timestamp (separato dal rumore GPS)
     uint8_t         m_txSeq = 0;

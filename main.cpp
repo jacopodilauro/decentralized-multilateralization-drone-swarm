@@ -18,6 +18,7 @@
 #include "Trajectories.h"
 #include "UWBChannel.h"
 #include "EKF.h"
+#include "GnssModel.h"
 #include "SimulationLogger.h"
 
 using namespace ns3;
@@ -69,6 +70,8 @@ int main(int argc, char *argv[])
     uint32_t verbose = 1;
     double qAcc = 2.0;
     std::string ranging = "dstwr";
+    std::string gnssMode = "simple";   // "receiver" diventera' il default insieme al nuovo test di rilevamento
+    gnss::Params gnssP;
 
     CommandLine cmd;
     cmd.AddValue("setnDrones",  "Numero di droni base nello sciame", setnDrones);
@@ -85,6 +88,10 @@ int main(int argc, char *argv[])
     cmd.AddValue("verbose",     "Output: 0 silenzioso, 1 eventi, 2 debug", verbose);
     cmd.AddValue("qAcc",        "Rumore di processo EKF (accelerazione)", qAcc);
     cmd.AddValue("ranging",     "dstwr (orologi realistici) oppure toa (modello storico)", ranging);
+    cmd.AddValue("gnss",        "receiver (ricevitore simulato) oppure simple (modello storico)", gnssMode);
+    cmd.AddValue("gnssCommon",  "GNSS: errore comune per satellite [m]", gnssP.commonSigmaM);
+    cmd.AddValue("gnssMultipath","GNSS: multipath individuale [m]", gnssP.multipathSigM);
+    cmd.AddValue("gnssCode",    "GNSS: rumore di codice individuale [m]", gnssP.codeNoiseSigM);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -93,6 +100,13 @@ int main(int argc, char *argv[])
 
     RngSeedManager::SetSeed(12345);
     RngSeedManager::SetRun(runId); 
+
+    if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss deve essere receiver o simple" << std::endl; return 1; }
+    if (gnssMode == "receiver") {
+        // Una sola costellazione per simulazione: e' lei a rendere comune l'errore atmosferico tra i droni
+        uint64_t gseed = RngSeedManager::GetSeed() * 6364136223846793005ULL + RngSeedManager::GetRun() + 0x6E55ULL;
+        UwbSecurityApp::SetGnssConstellation(std::make_shared<gnss::Constellation>(gnssP, gseed));
+    }
 
     std::cout << "--- Start Simulation Distry MLAT-26 (Decentralized Edition) ---" << std::endl;
 

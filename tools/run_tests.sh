@@ -25,6 +25,7 @@ run() {   # nome, comando di compilazione
 
 run test_ekf    g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_ekf.cc EKF.cpp
 run test_dstwr  g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_dstwr.cc
+run test_gnss   g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_gnss.cc
 
 if [[ -n "${NS3_PREFIX:-}" ]]; then
     NS3_VER="${NS3_VER:-3.44}"

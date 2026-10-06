@@ -19,6 +19,8 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 
 uint32_t UwbSecurityApp::s_verbosity = 1;
 bool UwbSecurityApp::s_rangingDsTwr = false;
+std::shared_ptr<gnss::Constellation> UwbSecurityApp::s_constellation = nullptr;
+void UwbSecurityApp::SetGnssConstellation(std::shared_ptr<gnss::Constellation> c) { s_constellation = std::move(c); }
 
 void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
 std::map<std::pair<char, uint32_t>, double> UwbSecurityApp::s_lastAnnounce;
@@ -76,6 +78,10 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
 m_rng.seed(seq);
     std::uniform_real_distribution<double> dist_offset(-1e-9, 1e-9);
     m_clockOffset = dist_offset(m_rng);
+
+    if (s_constellation) {
+        m_gnss = std::make_unique<gnss::Receiver>(s_constellation, base ^ (0x9E3779B97F4A7C15ULL * (m_id + 1)) ^ 0x47AA55ULL);
+    }
 
     if (s_rangingDsTwr) {
         // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
@@ -758,12 +764,17 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
                         mobility->GetPosition().y,
                         mobility->GetPosition().z);
 
-    std::normal_distribution<double> noise_xy(0.0, 0.2); 
-    std::normal_distribution<double> noise_z(0.0, 0.4);
-
-    gps.x() += noise_xy(m_rng);
-    gps.y() += noise_xy(m_rng);
-    gps.z() += noise_z(m_rng);
+    if (m_gnss) {
+        // Ricevitore GNSS simulato: errore comune (uguale per i droni vicini) + errore individuale
+        gnss::Fix f = m_gnss->Measure(gps, Simulator::Now().GetSeconds());
+        if (f.ok) { gps = f.pos; m_lastGnssFix = f; }
+    } else {
+        std::normal_distribution<double> noise_xy(0.0, 0.2);
+        std::normal_distribution<double> noise_z(0.0, 0.4);
+        gps.x() += noise_xy(m_rng);
+        gps.y() += noise_xy(m_rng);
+        gps.z() += noise_z(m_rng);
+    }
 
     if (m_isMalicious) {
         const double TARGET_OFFSET = 15.0; 

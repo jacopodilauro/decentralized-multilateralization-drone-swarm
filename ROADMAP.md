@@ -158,6 +158,17 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
   - [ ] Su droni reali: collegare orologio GNSS e orologio UWB (impulso PPS registrato dal chip UWB)
 - [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
 - [ ] **Fase 6 – Ricevitore GNSS** (satelliti, pseudodistanze, minimi quadrati per posizione e clock bias)
+  - [x] 6.1 `GnssModel.h`: costellazione condivisa (errore comune per satellite, Gauss-Markov 1,5 m / 600 s),
+        ricevitore per drone (multipath 0,4 m / 10 s, codice 0,2 m, orologio +-1 ms e +-0,5 ppm), minimi
+        quadrati per posizione e clock bias. Test `tests/test_gnss.cc`: esatto senza errori; assoluto orizz.
+        2,6 m (p95 4,7), relativo tra droni a 20 m 0,70 m (p95 1,6), clock bias 1,3 m. Opzione
+        `--gnss=receiver` (default ancora `simple`, identico al 4.3); parametri `--gnssCommon/Multipath/Code`
+  - [ ] 6.2 Con `--gnss=receiver` i falsi allarmi esplodono (collettivi pre-attacco 10,3% +-13, seed 1 25%):
+        la soglia max(2 m, 3,5 pos_std) e' tarata su un GPS con errore relativo ~0,3 m; quello realistico
+        e' ~0,8 m (code 2-4 m), ~75% dei sospetti dominati dalla quota. Serve un test chi-quadro che usi
+        covarianza del filtro + accuratezza dichiarata dal GPS (orizz./vert.), poi `receiver` di default
+  - [ ] 6.3 Con il GPS realistico lo sciame si localizza nel riferimento del GPS (spostato dell'errore
+        comune): l'errore rispetto alla posizione vera non e' piu' la metrica giusta per la localizzazione
 - [ ] **Fase 7 – Spoofer esterno** (posizione, attivazione, cattura dei droni)
 - [ ] **Fase 8 – Rilevamento dello spoofer esterno** con il consenso esistente
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
@@ -184,3 +195,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-02 | 4.1 | add uwb clock model and ds-twr | Test isolato superato; nessuna modifica al simulatore |
 | 2026-10-02 | 4.2-4.3 | ds-twr ranging in the simulator | Orologi realistici; FA collettivi pre-attacco -82%, errore base p95 -24% |
 | 2026-10-05 | – | roadmap order, ignore paper notes | Note private per il paper in PAPER_NOTES.md (non su GitHub) |
+| 2026-10-05 | 6.1 | add gnss receiver model (off by default) | Ricevitore testato; attivo rivela che la soglia di sospetto non regge un GPS realistico |
