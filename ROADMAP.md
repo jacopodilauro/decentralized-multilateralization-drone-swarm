@@ -78,7 +78,7 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 
 - [x] **Fase 0 – Infrastruttura**: script di build, metriche, confronto, esecuzione multi-seed; questo file.
       Unica modifica al simulatore: `#include <iomanip>` mancante in `UwbSecurityApp.cpp`.
-- [ ] **Fase 1 – Bug che non cambiano il modello** (le metriche devono restare identiche, salvo dove previsto)
+- [x] **Fase 1 – Bug che non cambiano il modello** (le metriche devono restare identiche, salvo dove previsto)
   - [x] Salvare nel CSV anche il sospetto individuale: nuove colonne `my_vote`, `suspicious_now`,
         `mahal`, `pos_std` (in fondo, le 22 esistenti sono identiche byte per byte)
   - [x] Variabili non inizializzate (`m_isGuest`, `m_macState`, `m_listenCounter`, `m_chosenSlot`, `m_clockOffset`);
@@ -132,6 +132,9 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         droni base non vengono piu' condivisi (esperimento E1: senza i range degli ospiti p95 8 m)
   - [ ] `q_acc` unico per droni lenti e veloci: valutare rumore di processo adattivo per drone
   - [ ] Ricontrollare la sensibilita' con attacchi piu' lenti/sottili dopo l'aumento di `q_acc`
+Ordine dei lavori da qui (deciso il 5 ottobre 2026): Fasi 6 -> 7 -> 8 -> 9 (contributo principale),
+poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper solo dopo le Fasi 3 e 5.
+
 - [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm;
       valutare qui un'allocazione dinamica degli slot con collisioni vere
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti (anticipata)
@@ -180,3 +183,4 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 | 2026-10-01 | 2.6 | drop mahalanobis from the decision | Sospetti istantanei pre-attacco 1,31% -> 0,40%; allarmi e rilevamento quasi invariati |
 | 2026-10-02 | 4.1 | add uwb clock model and ds-twr | Test isolato superato; nessuna modifica al simulatore |
 | 2026-10-02 | 4.2-4.3 | ds-twr ranging in the simulator | Orologi realistici; FA collettivi pre-attacco -82%, errore base p95 -24% |
+| 2026-10-05 | – | roadmap order, ignore paper notes | Note private per il paper in PAPER_NOTES.md (non su GitHub) |
