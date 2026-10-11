@@ -93,6 +93,9 @@ struct Fix {
     // proiettati con la geometria dei satelliti. L'errore comune non c'e': si cancella tra droni vicini
     double          hAccM = 0.0;           // per asse orizzontale
     double          vAccM = 0.0;           // verticale
+    // Covarianza piena (ENU) dell'errore individuale: sigma^2 * G. hAcc/vAcc ne perdono l'anisotropia
+    // orizzontale e le correlazioni (con 9 satelliti l'errore in un asse puo' essere ~2 volte l'altro)
+    Eigen::Matrix3d covInd = Eigen::Matrix3d::Zero();
 };
 
 class Receiver {
@@ -158,6 +161,7 @@ public:
         double sigInd2 = p.multipathSigM * p.multipathSigM + p.codeNoiseSigM * p.codeNoiseSigM;
         f.hAccM = std::sqrt(sigInd2 * 0.5 * (Gm(0, 0) + Gm(1, 1)));
         f.vAccM = std::sqrt(sigInd2 * Gm(2, 2));
+        f.covInd = sigInd2 * Gm.topLeftCorner<3, 3>();
         f.ok = true;
         f.pos = x.head<3>();
         f.clockBiasS = x(3) / LIGHT_C;

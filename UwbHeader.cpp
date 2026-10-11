@@ -46,7 +46,7 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += (m_sharedRanges.size() * 8);
 
     if (s_dsTwr) size += 1 + 5 + 1 + m_rxReports.size() * 8;
-    if (s_gnssAcc) size += 4;
+    if (s_gnssAcc) size += 9;
     return size;
 }
 
@@ -84,9 +84,11 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     for (const auto& [targetId, ra] : m_sharedRanges) {
         NS_ASSERT_MSG(targetId <= 0xFFFF, "UwbHeader: ID bersaglio oltre 65535");
         start.WriteHtonU16(static_cast<uint16_t>(targetId));
-        uint32_t range_mm = static_cast<uint32_t>(ra.first * 1000.0);  // quantizzazione al mm
+        // quantizzazione al mm su 31 bit (fino a 2147 km); bit alto = misura NLOS
+        uint32_t range_mm = static_cast<uint32_t>(std::min(ra.range * 1000.0, 2147483647.0));
+        if (!ra.los) range_mm |= 0x80000000u;
         start.WriteHtonU32(range_mm);
-        double age_units = std::round(std::max(0.0, ra.second) * 1e4);   // decimi di ms
+        double age_units = std::round(std::max(0.0, ra.age) * 1e4);   // decimi di ms
         start.WriteHtonU16(static_cast<uint16_t>(std::min(age_units, 65535.0)));
     }
     if (s_dsTwr) {
@@ -103,7 +105,10 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
             start.WriteHtonU32(static_cast<uint32_t>(r.rxStamp & 0xFFFFFFFFULL));
         }
     }
-    if (s_gnssAcc) { start.WriteHtonU16(m_hAccCm); start.WriteHtonU16(m_vAccCm); }
+    if (s_gnssAcc) {
+        for (int i = 0; i < 3; i++) start.WriteHtonU16(m_sdCm[i]);
+        for (int i = 0; i < 3; i++) start.WriteU8((uint8_t)m_rho[i]);
+    }
 }
 
 uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
@@ -139,7 +144,8 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
         uint32_t targetId = start.ReadNtohU16();
         uint32_t range_mm = start.ReadNtohU32();
         uint16_t age_units = start.ReadNtohU16();
-        m_sharedRanges[targetId] = { static_cast<double>(range_mm) / 1000.0, age_units / 1e4 };
+        bool los = (range_mm & 0x80000000u) == 0;
+        m_sharedRanges[targetId] = { static_cast<double>(range_mm & 0x7FFFFFFFu) / 1000.0, age_units / 1e4, los };
     }
     m_rxReports.clear();
     if (s_dsTwr) {
@@ -159,7 +165,10 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
         }
     }
 
-    if (s_gnssAcc) { m_hAccCm = start.ReadNtohU16(); m_vAccCm = start.ReadNtohU16(); }
+    if (s_gnssAcc) {
+        for (int i = 0; i < 3; i++) m_sdCm[i] = start.ReadNtohU16();
+        for (int i = 0; i < 3; i++) m_rho[i] = (int8_t)start.ReadU8();
+    }
 
     return GetSerializedSize (); 
 }
@@ -169,11 +178,11 @@ void UwbHeader::SetSenderId (uint32_t id) { m_senderId = id; }
 void UwbHeader::SetTxTimestampPs (uint64_t timestamp_ps) { m_txTimestampPs = timestamp_ps; }
 void UwbHeader::SetGpsPosition (double x, double y, double z) { m_gpsX = x; m_gpsY = y; m_gpsZ = z; }
 void UwbHeader::SetImLeaving (bool leaving) { m_imLeaving = leaving; }
-void UwbHeader::SetSharedRange(uint32_t targetId, double range, double age)
+void UwbHeader::SetSharedRange(uint32_t targetId, double range, double age, bool los)
 {
     // Un range negativo significa "nessuna misura": non viene trasmesso
     if (range < 0.0) { m_sharedRanges.erase(targetId); return; }
-    m_sharedRanges[targetId] = { range, age };
+    m_sharedRanges[targetId] = { range, age, los };
 }
 
 uint32_t UwbHeader::GetSenderId () const { return m_senderId; }
@@ -185,13 +194,19 @@ bool     UwbHeader::GetImLeaving ()   const { return m_imLeaving; }
 double UwbHeader::GetSharedRange(uint32_t targetId) const
 {
     auto it = m_sharedRanges.find(targetId);
-    return (it != m_sharedRanges.end()) ? it->second.first : -1.0;  // -1 = nessuna misura
+    return (it != m_sharedRanges.end()) ? it->second.range : -1.0;  // -1 = nessuna misura
 }
 
 double UwbHeader::GetSharedRangeAge(uint32_t targetId) const
 {
     auto it = m_sharedRanges.find(targetId);
-    return (it != m_sharedRanges.end()) ? it->second.second : -1.0;
+    return (it != m_sharedRanges.end()) ? it->second.age : -1.0;
+}
+
+bool UwbHeader::GetSharedRangeLos(uint32_t targetId) const
+{
+    auto it = m_sharedRanges.find(targetId);
+    return (it != m_sharedRanges.end()) ? it->second.los : true;
 }
 
 void UwbHeader::SetAlarmsList(const std::vector<uint8_t>& alarms) { m_alarmsList = alarms; }

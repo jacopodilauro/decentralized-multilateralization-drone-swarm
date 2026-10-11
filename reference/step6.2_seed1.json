@@ -1,0 +1,42 @@
+{
+  "righe_log": 576545,
+  "fa_collettivi_pre_attacco_pct": 0.0,
+  "fa_pre_per_mittente": {},
+  "rilevamento": {
+    "0": {
+      "osservatori_che_lo_vedono": 7,
+      "osservatori_che_rilevano": 7,
+      "latenza_min_s": 3.9029999999999916,
+      "latenza_mediana_s": 3.9029999999999916,
+      "latenza_max_s": 3.9029999999999916,
+      "tasso_allarme_post_pct": 90.25,
+      "latenza_individuale_mediana_s": 3.8029999999999973,
+      "tasso_voto_individuale_post_pct": 90.5
+    }
+  },
+  "fa_collettivi_onesti_post_attacco_pct": 2.413265306122449,
+  "fa_post_per_mittente": {
+    "2": 67,
+    "6": 203,
+    "7": 203
+  },
+  "fa_individuali_pre_attacco_pct": 0.0,
+  "sospetti_istantanei_pre_attacco_pct": 0.1647583213779787,
+  "fa_individuali_onesti_post_attacco_pct": 10.11734693877551,
+  "fa_collettivi_onesti_da_onesti_post_pct": 2.4107142857142856,
+  "fa_individuali_onesti_da_onesti_post_pct": 2.1904761904761907,
+  "errore_ekf_onesti_post_mediana_m": 2.798185,
+  "errore_ekf_onesti_post_p95_m": 5.379769499999999,
+  "errore_ekf_base_mediana_m": 2.8529150000000003,
+  "errore_ekf_base_p95_m": 6.301741999999999,
+  "errore_ekf_ospiti_mediana_m": 2.82869,
+  "errore_ekf_ospiti_p95_m": 5.245069999999998,
+  "errore_ekf_base_p99_m": 7.5784319999999985,
+  "errore_ekf_ospiti_p99_m": 6.021124399999996,
+  "errore_rel_base_mediana_m": 0.6444068493567459,
+  "errore_rel_base_p95_m": 1.7730023894864986,
+  "errore_rel_ospiti_mediana_m": 0.6744757816259956,
+  "errore_rel_ospiti_p95_m": 1.5166333732975847,
+  "chi2_media_pre": 2.962951489331655,
+  "chi2_oltre_999_pre_pct": 0.16813965351813348
+}

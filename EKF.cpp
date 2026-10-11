@@ -61,6 +61,9 @@ void EKF::Update(const vector<Msmnt>& measurements) {
     MatrixXd H = MatrixXd::Zero(n, 7);
     MatrixXd R = MatrixXd::Zero(n, n);
 
+    VectorXd D = VectorXd::Zero(n);   // varianza dovuta all'ancora, proiettata sulla direzione di misura
+    bool anyAnchorCov = false;
+
     Vector3d est_pos  = m_state.segment<3>(0);
     Vector3d est_vel  = m_state.segment<3>(3);
     double   est_bias = m_state(6);
@@ -98,6 +101,12 @@ void EKF::Update(const vector<Msmnt>& measurements) {
             H(i, 6) = 0.0;
             R(i, i) = m.is_los ? 1.5 : 4.0;
         }
+        if (m.uwb_var >= 0.0) R(i, i) = m.uwb_var;
+        if (!m.anchor_cov.isZero()) {
+            D(i) = u.dot(m.anchor_cov * u);
+            R(i, i) += D(i);
+            anyAnchorCov = true;
+        }
     }
 
     VectorXd y = Z - h;
@@ -109,6 +118,16 @@ void EKF::Update(const vector<Msmnt>& measurements) {
 
     MatrixXd I_KH = MatrixXd::Identity(7, 7) - K * H;
     m_P = I_KH * m_P * I_KH.transpose() + K * R * K.transpose();
+
+    if (anyAnchorCov) {
+        // G = (Hp' R^-1 Hp)^-1 Hp' R^-1 sulle sole colonne di posizione; C = G D G'
+        MatrixXd Hp = H.leftCols(3);
+        VectorXd w  = R.diagonal().cwiseInverse();
+        Matrix3d A  = Hp.transpose() * w.asDiagonal() * Hp;
+        MatrixXd G  = A.ldlt().solve(Hp.transpose() * w.asDiagonal());
+        Matrix3d C  = G * D.asDiagonal() * G.transpose();
+        m_anchorBiasCov = C.allFinite() ? C : Matrix3d::Zero();
+    }
 
     m_last_y = y.head(1);
     m_last_S = S.block<1,1>(0,0);

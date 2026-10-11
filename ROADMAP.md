@@ -53,8 +53,11 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step6.2a_seed1.json` (1 seed) e `reference/step6.2a_seed1-3.json` (3 seed).
-Il comportamento del 4.3 si riottiene con `--sharePolicy=nearest` (CSV identico byte per byte).
+Riferimento corrente: `reference/step6.2_seed1.json` (1 seed) e `reference/step6.2_seed1-3.json` (3 seed).
+Default dal passo 6.2: `--gnss=receiver --sharePolicy=oldest --anchorModel=consider`.
+Il comportamento del 4.3 si riottiene con `--gnss=simple --sharePolicy=nearest` (CSV identico byte per byte).
+Con il ricevitore GNSS l'errore da guardare e' `errore_rel_*` (rispetto al riferimento del GPS, vedi 6.3);
+la calibrazione del test e' in `chi2_media_pre` (attesa 3) e `chi2_oltre_999_pre_pct` (attesa 0,1%).
 
 Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
 e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
@@ -127,8 +130,8 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         hanno lo stesso errore fisso. Correlazione offset/errore di stima -0,95 su 36 ospiti (3 seed);
         oracolo senza offset: falsi allarmi pre-attacco 0%, errore base mediano 0,39 -> 0,25 m.
         Soluzione: Fase 4 (orologi realistici + DS-TWR), anticipata
-  - [ ] Valutare un test chi-quadro sulla discrepanza (stima - GPS) con la covarianza del filtro, al posto
-        della soglia max(2 m, 3,5 x pos_std)
+  - [x] Test chi-quadro sulla discrepanza (stima - GPS) con la covarianza del filtro (6.2, con il
+        ricevitore GNSS; con `--gnss=simple` resta la soglia max(2 m, 3,5 x pos_std))
   - [x] Ogni drone condivideva solo i 10 range piu' vicini: con 20 droni quelli periferici non sono tra i
         10 piu' vicini di nessuno, ricevono solo il range diretto (< 4 misure) e il filtro diverge
         (seed 1: nodo 3 senza range condivisi a ~77-90 s e ~140-152 s, pos_std ~48 m, errore fino a 32 m;
@@ -168,21 +171,34 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         quadrati per posizione e clock bias. Test `tests/test_gnss.cc`: esatto senza errori; assoluto orizz.
         2,6 m (p95 4,7), relativo tra droni a 20 m 0,70 m (p95 1,6), clock bias 1,3 m. Opzione
         `--gnss=receiver` (default ancora `simple`, identico al 4.3); parametri `--gnssCommon/Multipath/Code`
-  - [~] 6.2 (in corso) Test chi-quadro implementato e attivo solo con `--gnss=receiver` (default invariato):
-        d2 = e' S^-1 e, S = P filtro + 2 x accuratezza GPS individuale (trasmessa nel pacchetto, 4 byte);
-        colonna `gps_chi2` nel CSV; soglia `--chi2Thr` (default 16,27). Seed 1: media d2 3,28 (calibrata),
-        ma 1,3% oltre soglia (atteso 0,1%), FA collettivi pre-attacco 1,7% (prima 25%), latenza 4,6 s.
-        CAUSA delle code: il multipath CORRELATO (10 s) delle ancore. Esperimenti seed 1: solo errore comune
-        -> stima base p95 0,67 m, FA 0,05%; senza multipath -> 1,70 m, 0,05%; solo errori individuali ->
-        5,42 m, 1,7%. L'effetto si amplifica con gli ospiti nello sciame (meccanismo da dimostrare).
-        Prossimo: incertezza GPS di ogni ancora nella varianza di ciascuna misura (R_i) e gestione
-        dell'errore lento; poi `receiver` di default.
-  - [ ] (vecchia nota 6.2) Con `--gnss=receiver` i falsi allarmi esplodono (collettivi pre-attacco 10,3% +-13, seed 1 25%):
-        la soglia max(2 m, 3,5 pos_std) e' tarata su un GPS con errore relativo ~0,3 m; quello realistico
-        e' ~0,8 m (code 2-4 m), ~75% dei sospetti dominati dalla quota. Serve un test chi-quadro che usi
-        covarianza del filtro + accuratezza dichiarata dal GPS (orizz./vert.), poi `receiver` di default
-  - [ ] 6.3 Con il GPS realistico lo sciame si localizza nel riferimento del GPS (spostato dell'errore
-        comune): l'errore rispetto alla posizione vera non e' piu' la metrica giusta per la localizzazione
+  - [x] 6.2 Test chi-quadro calibrato: d2 = e' S^-1 e, e = stima - GPS dichiarato, soglia `--chi2Thr` 16,27
+        (3 g.d.l., 99,9%), colonna `gps_chi2`. Cause delle code trovate con esperimenti e test isolati:
+        (1) divergenze dei droni periferici dai "10 range piu' vicini" (passo 6.2a, rotazione);
+        (2) errore GPS delle ancore lento (multipath 10 s) trattato dal filtro come bianco: test NEES con moto
+        coerente col modello, ancore Gauss-Markov 10 s -> d2 medio 10,0 e 16,4% oltre soglia; ancore bianche
+        -> 3,00. Correzione `--anchorModel=consider` (default): R_i = sigma2_uwb + u' Sigma_ancora u per ogni
+        misura e covarianza "consider" del bias da ancore G D G' (G = minimi quadrati pesati) sommata nel
+        test: d2 2,43, 0% oltre soglia. Ablazioni: `fixed` (6.2 iniziale, fattore 2), `r` (solo R_i);
+        (3) hAcc/vAcc perdono l'anisotropia del GPS (seed 1: sigma x 0,62, y 0,34 m, hAcc 0,47): su 30
+        costellazioni diag(h,h,v) -> 0,44% oltre soglia, covarianza piena -> 0,08%. Il pacchetto porta ora
+        sigma E/N/U (cm) + 3 correlazioni (1/127): 9 byte (prima 4).
+        Varianze UWB dal modello di canale: LOS 0,01 m2, NLOS 0,36 m2; il bit NLOS dei range condivisi viaggia
+        nel bit alto del campo range (0 byte; prima il ricevente lo poneva sempre LOS).
+        3 seed (receiver, rispetto al 6.2 iniziale): d2 medio 2,67 -> 2,76 +-0,14; oltre soglia 0,54 -> 0,10%
+        +-0,05 (atteso 0,1%); errore relativo base p95 2,69 -> 1,20 m, ospiti 1,96 -> 1,16 m; FA pre-attacco
+        individuali 0,36 -> 0%, collettivi 0,60 -> 0%; latenza 3,57 -> 3,04 s; rilevamento 7/7.
+        Test: `test_ekf` [2] (NEES), `test_gnss` [6] (covarianza), `test_header` (bit LOS, covarianza)
+  - [ ] FA collettivi tra onesti dopo l'attacco 0,80 +-1,39% (solo seed 1, 2,41%): l'oracolo senza attacco
+        ne riproduce 2,18 punti (nodi 6 e 7 a 210 s) -> escursioni reali del GPS del mittente, viste da tutti
+        gli osservatori insieme (il quorum non le filtra): da classificare come allarmi di integrita' GNSS.
+        Il residuo legato all'attacco (~0,2%, nodo 2 a 200-205 s) e' probabilmente avvelenamento delle ancore
+        prima del rilevamento: da verificare con un oracolo
+  - [x] (vecchia nota 6.2) FA esplosi con `--gnss=receiver` e soglia max(2 m, 3,5 pos_std): risolto dal test
+        chi-quadro calibrato
+  - [~] 6.3 Con il GPS realistico lo sciame si localizza nel riferimento del GPS (spostato dell'errore
+        comune): l'errore rispetto alla posizione vera non e' piu' la metrica giusta per la localizzazione.
+        Fatto (6.2): `metrics.py` calcola `errore_rel_*` (errore comune stimato ogni 0,1 s come mediana su
+        tutti i mittenti di GPS - vero) ed `errore_ekf_*_p99_m`. Da fare: usarle nel viewer e nelle figure
 - [ ] **Fase 7 – Spoofer esterno** (posizione, attivazione, cattura dei droni)
 - [ ] **Fase 8 – Rilevamento dello spoofer esterno** con il consenso esistente
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
@@ -212,3 +228,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-05 | 6.1 | add gnss receiver model (off by default) | Ricevitore testato; attivo rivela che la soglia di sospetto non regge un GPS realistico |
 | 2026-10-05 | 6.2 (parziale) | chi-square gnss test (receiver mode) | Media calibrata; code dal multipath correlato delle ancore |
 | 2026-10-07 | 6.2a | rotate shared ranges | 3 seed, GPS semplice: base p95 0,77 -> 0,57 m, ospiti p95 1,13 -> 0,93 m, FA pre-attacco 0,034% -> 0%; post-attacco identico (<= 7 vicini). `nearest` = 4.3 byte per byte |
+| 2026-10-07 | 6.2 | model anchor gps uncertainty | Test chi-quadro calibrato su 3 seed (0,10% oltre il 99,9%); receiver, oldest e consider di default |

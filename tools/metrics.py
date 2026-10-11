@@ -92,6 +92,30 @@ def compute(log_path, attack_time, targets, n_base):
     m["errore_ekf_base_p95_m"] = float(base.quantile(.95)) if len(base) else None
     m["errore_ekf_ospiti_mediana_m"] = float(guest.median()) if len(guest) else None
     m["errore_ekf_ospiti_p95_m"] = float(guest.quantile(.95)) if len(guest) else None
+    # p99: le divergenze brevi di un solo drone (passo 6.2) restavano sotto il p95
+    m["errore_ekf_base_p99_m"] = float(base.quantile(.99)) if len(base) else None
+    m["errore_ekf_ospiti_p99_m"] = float(guest.quantile(.99)) if len(guest) else None
+
+    # 5) Dal passo 6.2. Con il ricevitore GNSS lo sciame si localizza nel riferimento del GPS, spostato
+    #    dell'errore comune: l'errore che conta e' quello RELATIVO a quel riferimento. L'errore comune si
+    #    stima per ogni decimo di secondo come mediana, sui mittenti, di (GPS dichiarato - posizione vera).
+    #    Si escludono i primi 20 s (inizializzazione dei filtri)
+    w = pre[pre.time > 20].copy()
+    w["tb"] = (w.time * 10).round()
+    for a in "xyz":
+        w["c" + a] = w["claim_" + a] - w["true_" + a]
+    com = w.groupby(["tb", "sender_id"])[["cx", "cy", "cz"]].first().groupby("tb").median()
+    w = w.join(com, on="tb", rsuffix="_com")
+    rel = sum((w["est_" + a] - w["true_" + a] - w["c" + a + "_com"]) ** 2 for a in "xyz") ** 0.5
+    wb = w.sender_id < n_base
+    for name, sel in (("base", wb), ("ospiti", ~wb)):
+        if sel.any():
+            m[f"errore_rel_{name}_mediana_m"] = float(rel[sel].median())
+            m[f"errore_rel_{name}_p95_m"] = float(rel[sel].quantile(.95))
+    #    Calibrazione del test chi-quadro (3 g.d.l.): media attesa 3, frazione oltre 16.27 attesa 0.1%
+    if "gps_chi2" in w.columns and len(w):
+        m["chi2_media_pre"] = float(w.gps_chi2.mean())
+        m["chi2_oltre_999_pre_pct"] = _pct(int((w.gps_chi2 > 16.27).sum()), len(w))
     return m
 
 

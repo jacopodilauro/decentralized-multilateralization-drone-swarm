@@ -51,6 +51,11 @@ public:
     //            vicini di nessuno: ricevono solo il range diretto e il loro filtro diverge
     //   oldest:  i K condivisi meno di recente (rotazione): ogni range esce ogni ceil(N/K) pacchetti
     static void SetRangeSharing(uint32_t k, bool oldestFirst) { s_shareK = k; s_shareOldest = oldestFirst; }
+    // Incertezza GPS delle ancore (solo con il ricevitore GNSS):
+    //   0 fixed:    R fisso, test con S = P + 2 Sigma_mittente (6.2 iniziale)
+    //   1 r:        R_i += u' Sigma_ancora u, test con S = P + Sigma_mittente
+    //   2 consider: come r, e nel test anche la covarianza del bias dovuto alle ancore (lento)
+    static void SetAnchorModel(int m) { s_anchorModel = m; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -156,7 +161,9 @@ private:
     static double s_chi2Thr;
     static uint32_t s_shareK;
     static bool     s_shareOldest;
+    static int      s_anchorModel;
     std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
+    std::map<uint32_t, Eigen::Matrix3d> m_lastKnownGpsCov;   // covarianza GPS individuale dichiarata [m^2]
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone

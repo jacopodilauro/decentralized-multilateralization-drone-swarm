@@ -18,6 +18,11 @@ public:
         double          delay = 0.0;   // [s] la misura e' stata presa 'delay' secondi fa
         bool            clock_bias = true;   // misura diretta: true = ToA a una via con bias di clock,
                                              // false = distanza gia' priva di bias (DS-TWR)
+        // Covarianza dell'errore di posizione dell'ancora (GPS individuale). Zero = ancora esatta (storico).
+        // Se non nulla: R_i += u' Sigma u, e l'errore delle ancore entra nella covarianza "consider"
+        Eigen::Matrix3d anchor_cov = Eigen::Matrix3d::Zero();
+        // Varianza dell'errore UWB [m^2]; negativa = valori storici (0.09/0.36 diretta, 1.5/4.0 condivisa)
+        double          uwb_var = -1.0;
         Msmnt() : toa(0), tx_timestamp(0), is_direct(true), is_los(true) {}
     };
 
@@ -40,6 +45,11 @@ public:
     double          GetPositionStdDev()  const;
     Eigen::Matrix3d GetPositionCovariance() const { return m_P.block<3,3>(0,0); }
     double          GetMahalanobisDistance() const;
+    // Covarianza dell'errore di posizione dovuto alle ancore, trattato come costante (bias) nella memoria
+    // del filtro: G D G', G = mappa dei minimi quadrati pesati dell'ultimo aggiornamento,
+    // D = diag(u_i' Sigma_i u_i). Il filtro tratta l'errore delle ancore come bianco e lo media: questa
+    // parte non si media (errore lento) e va sommata a P nei test di consistenza. Zero senza anchor_cov
+    Eigen::Matrix3d GetAnchorBiasCovariance() const { return m_anchorBiasCov; }
 
 private:
     Eigen::VectorXd m_state;  
@@ -51,6 +61,7 @@ private:
 
     static inline double s_defaultQAcc = 2.0;
 
+    Eigen::Matrix3d m_anchorBiasCov = Eigen::Matrix3d::Zero();
     Eigen::VectorXd m_last_y;
     Eigen::MatrixXd m_last_S;
 };

@@ -66,6 +66,27 @@ int main()
         CHECK(!r3.Measure(Vector3d(0, 0, 50), 1.0).ok, "con 3 satelliti il fix non deve essere valido");
     }
 
+    std::printf("[6] covarianza dichiarata dell'errore individuale (30 costellazioni, d2 con 3 g.d.l.)\n");
+    {
+        double sA = 0, sB = 0, qA = 0, qB = 0; int n = 0;
+        for (int cs = 0; cs < 30; cs++) {
+            Params q; q.commonSigmaM = 0.0;                    // solo errore individuale
+            auto cc = std::make_shared<Constellation>(q, 31337 + cs);
+            Receiver r(cc, 99 + cs);
+            for (int k = 0; k < 300; k++) {                    // un campione al secondo (multipath tau 10 s)
+                Fix f = r.Measure(Vector3d(0, 0, 0), 1.0 * k);
+                Vector3d e = f.pos;
+                Eigen::Matrix3d D = Vector3d(f.hAccM * f.hAccM, f.hAccM * f.hAccM, f.vAccM * f.vAccM).asDiagonal();
+                double a = e.dot(D.ldlt().solve(e)), b = e.dot(f.covInd.ldlt().solve(e));
+                sA += a; sB += b; qA += a > 16.27; qB += b > 16.27; n++;
+            }
+        }
+        std::printf("  diag(h,h,v):       media d2 %.2f, oltre 16.27 %.2f%%\n", sA / n, 100 * qA / n);
+        std::printf("  covarianza piena:  media d2 %.2f, oltre 16.27 %.2f%% (attesi 3 e 0.1%%)\n", sB / n, 100 * qB / n);
+        CHECK(sB / n > 2.7 && sB / n < 3.3 && 100 * qB / n < 0.25, "la covarianza piena deve essere calibrata");
+        CHECK(qA > 2 * qB, "diag(h,h,v) perde l'anisotropia: coda piu' pesante");
+    }
+
     std::printf("\n%s\n", g_fail == 0 ? "TUTTI I TEST SUPERATI" : "CI SONO CONTROLLI FALLITI");
     return g_fail == 0 ? 0 : 1;
 }

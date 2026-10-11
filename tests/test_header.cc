@@ -127,6 +127,46 @@ int main()
         std::printf("  pacchetto con 3 ricezioni: %u byte (classico %u)\n", w, sizeClassic);
     }
 
+    // Bit NLOS dei range condivisi: nel bit alto del campo range, nessun byte in piu'
+    {
+        std::printf("[bit LOS dei range condivisi]\n");
+        UwbHeader a, b;
+        a.SetSharedRange(1, 12.345, 0.1);
+        b.SetSharedRange(1, 12.345, 0.1, false);
+        CHECK(a.GetSerializedSize() == b.GetSerializedSize(), "il bit LOS non aggiunge byte");
+        uint32_t w = 0;
+        UwbHeader oa = RoundTrip(a, &w), ob = RoundTrip(b, &w);
+        CHECK(oa.GetSharedRangeLos(1) && !ob.GetSharedRangeLos(1), "LOS e NLOS sopravvivono alla serializzazione");
+        CHECK(std::fabs(oa.GetSharedRange(1) - 12.345) < 1e-9 && std::fabs(ob.GetSharedRange(1) - 12.345) < 1e-9,
+              "il bit NLOS non altera il range");
+        CHECK(ob.GetSharedRangeLos(77), "ID assente -> LOS (valore neutro)");
+        UwbHeader c; c.SetSharedRange(2, 2147483.0, 0.0, false);       // ~massimo su 31 bit
+        UwbHeader oc = RoundTrip(c, &w);
+        CHECK(std::fabs(oc.GetSharedRange(2) - 2147483.0) < 1e-3 && !oc.GetSharedRangeLos(2), "range grande + NLOS");
+    }
+
+    // Covarianza GPS: 3 deviazioni standard (cm) + 3 correlazioni (1/127), 9 byte, solo con SetGnssAccMode(true)
+    {
+        std::printf("[covarianza GPS nel pacchetto]\n");
+        UwbHeader h;
+        uint32_t size0 = h.GetSerializedSize();
+        UwbHeader::SetGnssAccMode(true);
+        // sE 0.62, sN 0.34, sU 1.53; rho EN 0.4, EU -0.7, NU 0.1
+        const double sd[3] = { 0.62, 0.34, 1.53 }, rho[3] = { 0.4, -0.7, 0.1 };
+        double cov[6] = { sd[0] * sd[0], sd[1] * sd[1], sd[2] * sd[2],
+                          rho[0] * sd[0] * sd[1], rho[1] * sd[0] * sd[2], rho[2] * sd[1] * sd[2] };
+        h.SetGpsCov(cov);
+        uint32_t w = 0;
+        UwbHeader o = RoundTrip(h, &w);
+        CHECK(w == size0 + 9, "9 byte in piu'");
+        double got[6]; o.GetGpsCov(got);
+        bool ok = true;
+        for (int i = 0; i < 6; i++) ok = ok && std::fabs(got[i] - cov[i]) <= 0.01 * std::fabs(cov[i]) + 2e-3;
+        CHECK(ok, "covarianza ricostruita entro la quantizzazione (1 cm, 1/127)");
+        UwbHeader::SetGnssAccMode(false);
+        CHECK(h.GetSerializedSize() == size0, "senza ricevitore GNSS la dimensione non cambia");
+    }
+
     // Sovrascrittura: l'ultimo valore impostato vince
     {
         std::printf("[sovrascrittura dello stesso ID]\n");

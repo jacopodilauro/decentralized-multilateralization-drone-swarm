@@ -25,6 +25,28 @@ double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta
 // Stessi default di main.cpp (che li imposta comunque dalla riga di comando)
 uint32_t UwbSecurityApp::s_shareK = 10;
 bool UwbSecurityApp::s_shareOldest = true;
+int UwbSecurityApp::s_anchorModel = 2;
+
+// Varianza dell'errore di un DS-TWR dal modello di canale: LOS N(0, 0.10) per messaggio (~7 cm sul DS-TWR,
+// 0.01 con margine); NLOS: un messaggio con U(0.3, 2.5) + N(0, 0.5), pesato ~1/4-1/2 -> ~0.33 m^2
+static double DsTwrVar(bool los) { return los ? 0.01 : 0.36; }
+
+// Covarianza dell'errore GPS individuale: piena (dal pacchetto) o diagonale isotropa in orizzontale,
+// diag(h^2, h^2, v^2) con h^2 = media di E e N (equivale ad hAcc/vAcc, usata dal modello "fixed")
+static Eigen::Matrix3d CovFromArray(const double c[6]) {
+    Eigen::Matrix3d m;
+    m << c[0], c[3], c[4],
+         c[3], c[1], c[5],
+         c[4], c[5], c[2];
+    return m;
+}
+static Eigen::Matrix3d IsoHorizontal(const Eigen::Matrix3d& c) {
+    double h2 = 0.5 * (c(0, 0) + c(1, 1));
+    return Eigen::Vector3d(h2, h2, c(2, 2)).asDiagonal();
+}
+static void CovToArray(const Eigen::Matrix3d& m, double c[6]) {
+    c[0] = m(0, 0); c[1] = m(1, 1); c[2] = m(2, 2); c[3] = m(0, 1); c[4] = m(0, 2); c[5] = m(1, 2);
+}
 void UwbSecurityApp::SetGnssConstellation(std::shared_ptr<gnss::Constellation> c) { s_constellation = std::move(c); }
 
 void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
@@ -181,7 +203,7 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetSenderId(m_id);
     header.SetTxTimestampPs((uint64_t)(localTime * 1e12));
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
-    if (m_gnss) header.SetGpsAcc(m_lastGnssFix.hAccM, m_lastGnssFix.vAccM);
+    if (m_gnss) { double c[6]; CovToArray(m_lastGnssFix.covInd, c); header.SetGpsCov(c); }
     header.SetImLeaving(m_imLeaving);
 
     if (s_rangingDsTwr) {
@@ -257,7 +279,7 @@ void UwbSecurityApp::SendUwbMessage() {
     std::sort(cand.begin(), cand.end());
     if (cand.size() > s_shareK) cand.resize(s_shareK);
     for (const auto& [key, r, targetId] : cand) {
-        header.SetSharedRange(targetId, r, nowS - m_myLastRangeTime[targetId]);
+        header.SetSharedRange(targetId, r, nowS - m_myLastRangeTime[targetId], m_myLastRangesLos[targetId]);
         m_lastSharedTime[targetId] = nowS;
     }
 
@@ -481,6 +503,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         }
 
         m_lastKnownGps[senderId]  = claimedGps;
+        if (m_gnss) { double c[6]; header.GetGpsCov(c); m_lastKnownGpsCov[senderId] = CovFromArray(c); }
         m_lastKnownTime[senderId] = txTimeSec;
 
         for (const auto& pair : m_slotMap) {
@@ -491,7 +514,8 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             if (r > 0.0) {
                 m_networkRanges[senderId][i]     = r;
                 m_networkRangeTimes[senderId][i] = txTimeSec - header.GetSharedRangeAge(i);  // istante della misura
-                m_networkRangesLos[senderId][i]  = true; 
+                // bit LOS di chi ha misurato: usato solo con il modello d'errore DS-TWR (anchorModel r/consider)
+                m_networkRangesLos[senderId][i]  = (m_gnss && s_anchorModel > 0) ? header.GetSharedRangeLos(i) : true;
             }
         }
 
@@ -605,6 +629,10 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         myData.range        = myMeasuredRange;
         myData.delay        = std::max(0.0, currentTime - directTime);
         myData.is_los       = directLos;
+        if (m_gnss && s_anchorModel > 0) {   // l'ancora sono io: la mia accuratezza GPS
+            myData.anchor_cov = m_lastGnssFix.covInd;
+            myData.uwb_var    = DsTwrVar(directLos);
+        }
         inputData.push_back(myData);
     }
 
@@ -650,6 +678,10 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         peerData.is_direct     = false;
         peerData.range         = m_networkRanges[k][senderId];
         peerData.is_los        = m_networkRangesLos.count(k) ? (m_networkRangesLos[k].count(senderId) ? m_networkRangesLos[k][senderId] : true) : true;
+        if (m_gnss && s_anchorModel > 0) {
+            peerData.uwb_var = DsTwrVar(peerData.is_los);
+            if (m_lastKnownGpsCov.count(k)) peerData.anchor_cov = m_lastKnownGpsCov[k];
+        }
         inputData.push_back(peerData);
     }
 
@@ -665,14 +697,19 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
 
     double adaptiveThreshold = std::max(2.0, 3.5 * posStd);
 
-    // Test chi-quadro: d2 = e' S^-1 e, con e = stima - GPS dichiarato e
-    // S = covarianza del filtro + errore GPS individuale del mittente + errore GPS delle ancore.
-    // Il secondo termine compare due volte: l'errore delle ancore e' lento (multipath ~10 s), il filtro
-    // non lo media e la sua covarianza lo sottostima. Con questo termine la media di d2 e' ~3 (calibrata)
-    Eigen::Vector3d gpsSig = m_gnss ? Eigen::Vector3d(header.GetGpsHAcc(), header.GetGpsHAcc(), header.GetGpsVAcc())
-                                    : Eigen::Vector3d(0.2, 0.2, 0.4);   // modello GPS storico
+    // Test chi-quadro: d2 = e' S^-1 e, con e = stima - GPS dichiarato.
+    // e = (errore del filtro) + (errore indotto dal GPS delle ancore) - (errore GPS individuale del mittente).
+    // L'errore delle ancore e' lento (multipath ~10 s): il filtro lo tratta come bianco e lo media, quindi P
+    // lo sottostima. anchorModel: fixed -> fattore 2 empirico sul mittente; r -> solo R_i per misura;
+    // consider -> covarianza del bias da ancore (G D G' dell'EKF), calcolata dalla geometria corrente
     Eigen::Matrix3d S = m_ekfBank[senderId].GetPositionCovariance();
-    S += 2.0 * gpsSig.cwiseProduct(gpsSig).asDiagonal();
+    Eigen::Matrix3d sigSender = Eigen::Vector3d(0.04, 0.04, 0.16).asDiagonal();   // modello GPS storico
+    if (m_gnss) { double c[6]; header.GetGpsCov(c); sigSender = CovFromArray(c); }
+    if (!m_gnss || s_anchorModel == 0) S += 2.0 * (m_gnss ? IsoHorizontal(sigSender) : sigSender);
+    else {
+        S += sigSender;
+        if (s_anchorModel == 2) S += m_ekfBank[senderId].GetAnchorBiasCovariance();
+    }
     Eigen::Vector3d eVec = estimatedPos - claimedGps;
     double gpsChi2 = eVec.dot(S.ldlt().solve(eVec));
 

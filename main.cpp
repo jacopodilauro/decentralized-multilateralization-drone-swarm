@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
     uint32_t verbose = 1;
     double qAcc = 2.0;
     std::string ranging = "dstwr";
-    std::string gnssMode = "simple";   // "receiver" diventera' il default insieme al nuovo test di rilevamento
+    std::string gnssMode = "receiver";   // "simple" = modello storico (posizione vera + rumore bianco)
     gnss::Params gnssP;
 
     CommandLine cmd;
@@ -97,6 +97,8 @@ int main(int argc, char *argv[])
     uint32_t shareK = 10;
     std::string sharePolicy = "oldest";
     cmd.AddValue("shareK",      "Range condivisi per pacchetto", shareK);
+    std::string anchorModel = "consider";
+    cmd.AddValue("anchorModel", "Incertezza GPS delle ancore (con --gnss=receiver): fixed | r | consider", anchorModel);
     cmd.AddValue("sharePolicy", "Scelta dei range condivisi: nearest (piu' vicini) | oldest (rotazione)", sharePolicy);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
@@ -105,6 +107,10 @@ int main(int argc, char *argv[])
         std::cerr << "--sharePolicy deve essere nearest oppure oldest" << std::endl; return 1;
     }
     UwbSecurityApp::SetRangeSharing(shareK, sharePolicy == "oldest");
+    if (anchorModel == "fixed") UwbSecurityApp::SetAnchorModel(0);
+    else if (anchorModel == "r") UwbSecurityApp::SetAnchorModel(1);
+    else if (anchorModel == "consider") UwbSecurityApp::SetAnchorModel(2);
+    else { std::cerr << "--anchorModel deve essere fixed, r oppure consider" << std::endl; return 1; }
     if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging deve essere dstwr o toa" << std::endl; return 1; }
     UwbSecurityApp::SetRangingDsTwr(ranging == "dstwr");
 
