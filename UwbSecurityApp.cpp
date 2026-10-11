@@ -11,7 +11,8 @@
 #include "ns3/rng-seed-manager.h"
 
 #include <cmath>
-#include <queue>
+#include <algorithm>
+#include <tuple>
 #include <iomanip>
 
 NS_LOG_COMPONENT_DEFINE ("UwbSecurityApp");
@@ -21,6 +22,9 @@ uint32_t UwbSecurityApp::s_verbosity = 1;
 bool UwbSecurityApp::s_rangingDsTwr = false;
 std::shared_ptr<gnss::Constellation> UwbSecurityApp::s_constellation = nullptr;
 double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta', 99.9%
+// Stessi default di main.cpp (che li imposta comunque dalla riga di comando)
+uint32_t UwbSecurityApp::s_shareK = 10;
+bool UwbSecurityApp::s_shareOldest = true;
 void UwbSecurityApp::SetGnssConstellation(std::shared_ptr<gnss::Constellation> c) { s_constellation = std::move(c); }
 
 void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
@@ -70,6 +74,7 @@ void UwbSecurityApp::Setup(uint32_t id, uint32_t swarmSize, double slotDuration,
     m_myLastRanges.assign(swarmSize, -1.0);
     m_myLastRangesLos.assign(swarmSize, true);
     m_myLastRangeTime.assign(swarmSize, -1.0);
+    m_lastSharedTime.assign(swarmSize, -1e9);
 
     uint64_t base = RngSeedManager::GetSeed() * 6364136223846793005ULL
               + RngSeedManager::GetRun();
@@ -237,34 +242,24 @@ void UwbSecurityApp::SendUwbMessage() {
     }
     header.SetGossipEvictions(evictGossip);
     
-    // Condivido i range verso i MAX_RANGES_TO_SHARE vicini PIU' VICINI: la coda tiene in cima il range
-    // piu' grande, che viene scartato quando si supera il limite.
-    const size_t MAX_RANGES_TO_SHARE = 10;
-    std::priority_queue<std::pair<double, uint32_t>> maxHeap; // (range, targetId)
+    // Range da condividere (al massimo s_shareK). Con "nearest" i K piu' vicini (storico); con "oldest"
+    // i K condivisi meno di recente, a parita' il piu' vicino: ogni range esce ogni ceil(N/K) pacchetti
+    double nowS = Simulator::Now().GetSeconds();
+    std::vector<std::tuple<double, double, uint32_t>> cand;   // (chiave, range, targetId)
     for (const auto& pair : m_slotMap) {
         uint32_t targetId = pair.first;
-        if (targetId < m_myLastRanges.size()) {
-            double r = m_myLastRanges[targetId];
-            double age = Simulator::Now().GetSeconds() - m_myLastRangeTime[targetId];
-
-            if (r > 0.0 && age <= MaxRangeAge()) {   // un range troppo vecchio verrebbe scartato comunque
-                maxHeap.push({r, targetId});
-                
-                if (maxHeap.size() > MAX_RANGES_TO_SHARE) {
-                    maxHeap.pop(); 
-                }
-            }
-        }
+        if (targetId >= m_myLastRanges.size()) continue;
+        double r = m_myLastRanges[targetId];
+        double age = nowS - m_myLastRangeTime[targetId];
+        if (r > 0.0 && age <= MaxRangeAge())   // un range troppo vecchio verrebbe scartato comunque
+            cand.emplace_back(s_shareOldest ? m_lastSharedTime[targetId] : r, r, targetId);
     }
-
-    while (!maxHeap.empty()) {
-        auto bestRange = maxHeap.top();
-        maxHeap.pop();
-        
-        double rangeAge = Simulator::Now().GetSeconds() - m_myLastRangeTime[bestRange.second];
-        header.SetSharedRange(bestRange.second, bestRange.first, rangeAge);
+    std::sort(cand.begin(), cand.end());
+    if (cand.size() > s_shareK) cand.resize(s_shareK);
+    for (const auto& [key, r, targetId] : cand) {
+        header.SetSharedRange(targetId, r, nowS - m_myLastRangeTime[targetId]);
+        m_lastSharedTime[targetId] = nowS;
     }
-
 
     Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
@@ -825,6 +820,7 @@ void UwbSecurityApp::SetActive(bool active) {
         m_myLastRanges.assign(m_swarmSize, -1.0);
         m_myLastRangesLos.assign(m_swarmSize, true);
         m_myLastRangeTime.assign(m_swarmSize, -1.0);
+        m_lastSharedTime.assign(m_swarmSize, -1e9);
     }
 }
 

@@ -94,9 +94,17 @@ int main(int argc, char *argv[])
     cmd.AddValue("gnssCode",    "GNSS: rumore di codice individuale [m]", gnssP.codeNoiseSigM);
     double chi2Thr = 16.27;
     cmd.AddValue("chi2Thr",     "Soglia chi-quadro (3 g.d.l.) con il ricevitore GNSS", chi2Thr);
+    uint32_t shareK = 10;
+    std::string sharePolicy = "oldest";
+    cmd.AddValue("shareK",      "Range condivisi per pacchetto", shareK);
+    cmd.AddValue("sharePolicy", "Scelta dei range condivisi: nearest (piu' vicini) | oldest (rotazione)", sharePolicy);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
+    if (sharePolicy != "nearest" && sharePolicy != "oldest") {
+        std::cerr << "--sharePolicy deve essere nearest oppure oldest" << std::endl; return 1;
+    }
+    UwbSecurityApp::SetRangeSharing(shareK, sharePolicy == "oldest");
     if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging deve essere dstwr o toa" << std::endl; return 1; }
     UwbSecurityApp::SetRangingDsTwr(ranging == "dstwr");
 

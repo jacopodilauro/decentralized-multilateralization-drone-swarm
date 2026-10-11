@@ -46,6 +46,11 @@ public:
     static void SetGnssConstellation(std::shared_ptr<gnss::Constellation> c);
     // Soglia del test chi-quadro (3 gradi di liberta') usata con il ricevitore GNSS
     static void SetChi2Threshold(double t) { s_chi2Thr = t; }
+    // Range condivisi per pacchetto: K e politica di scelta.
+    //   nearest: i K piu' vicini (storico). Con sciami grandi i droni periferici non sono tra i K piu'
+    //            vicini di nessuno: ricevono solo il range diretto e il loro filtro diverge
+    //   oldest:  i K condivisi meno di recente (rotazione): ogni range esce ogni ceil(N/K) pacchetti
+    static void SetRangeSharing(uint32_t k, bool oldestFirst) { s_shareK = k; s_shareOldest = oldestFirst; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -149,6 +154,9 @@ private:
     static bool s_rangingDsTwr;
     static std::shared_ptr<gnss::Constellation> s_constellation;
     static double s_chi2Thr;
+    static uint32_t s_shareK;
+    static bool     s_shareOldest;
+    std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone

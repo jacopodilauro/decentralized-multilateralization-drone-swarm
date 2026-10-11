@@ -53,7 +53,8 @@ Attenzione: con `--netanim=1` il CSV differisce a livello di arrotondamento nume
 608.593 nel seed 1, colonna `mahal`, 5a cifra di un valore ~1e-8; metriche identiche). Per gli
 esperimenti usare sempre `--netanim=0` (lo fa gia' `run_seeds.sh`).
 
-Riferimento corrente: `reference/step4.3_seed1.json` (1 seed) e `reference/step4.3_seed1-3.json` (3 seed).
+Riferimento corrente: `reference/step6.2a_seed1.json` (1 seed) e `reference/step6.2a_seed1-3.json` (3 seed).
+Il comportamento del 4.3 si riottiene con `--sharePolicy=nearest` (CSV identico byte per byte).
 
 Metriche tra onesti (dal passo 2.4): `*_onesti_da_onesti_*` escludono anche le righe in cui l'osservatore
 e' l'attaccante (che, ingannato dal proprio GPS, vede tutti gli altri fuori posto).
@@ -128,8 +129,12 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
         Soluzione: Fase 4 (orologi realistici + DS-TWR), anticipata
   - [ ] Valutare un test chi-quadro sulla discrepanza (stima - GPS) con la covarianza del filtro, al posto
         della soglia max(2 m, 3,5 x pos_std)
-  - [ ] Ogni drone condivide solo i 10 range piu' vicini: con gli ospiti dentro, alcuni range tra
-        droni base non vengono piu' condivisi (esperimento E1: senza i range degli ospiti p95 8 m)
+  - [x] Ogni drone condivideva solo i 10 range piu' vicini: con 20 droni quelli periferici non sono tra i
+        10 piu' vicini di nessuno, ricevono solo il range diretto (< 4 misure) e il filtro diverge
+        (seed 1: nodo 3 senza range condivisi a ~77-90 s e ~140-152 s, pos_std ~48 m, errore fino a 32 m;
+        nascosto dal p95). Ora rotazione (`--sharePolicy=oldest`, default; `--shareK`, default 10): ogni
+        pacchetto porta i K range condivisi meno di recente. Oracolo con tutti i range (seed 1): base p99
+        0,68 m; rotazione 0,74 m; prima 5,54 m. Vedi passo 6.2a
   - [ ] `q_acc` unico per droni lenti e veloci: valutare rumore di processo adattivo per drone
   - [ ] Ricontrollare la sensibilita' con attacchi piu' lenti/sottili dopo l'aumento di `q_acc`
 Ordine dei lavori da qui (deciso il 5 ottobre 2026): Fasi 6 -> 7 -> 8 -> 9 (contributo principale),
@@ -206,3 +211,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-05 | – | roadmap order, ignore paper notes | Note private per il paper in PAPER_NOTES.md (non su GitHub) |
 | 2026-10-05 | 6.1 | add gnss receiver model (off by default) | Ricevitore testato; attivo rivela che la soglia di sospetto non regge un GPS realistico |
 | 2026-10-05 | 6.2 (parziale) | chi-square gnss test (receiver mode) | Media calibrata; code dal multipath correlato delle ancore |
+| 2026-10-07 | 6.2a | rotate shared ranges | 3 seed, GPS semplice: base p95 0,77 -> 0,57 m, ospiti p95 1,13 -> 0,93 m, FA pre-attacco 0,034% -> 0%; post-attacco identico (<= 7 vicini). `nearest` = 4.3 byte per byte |
