@@ -117,6 +117,9 @@ int main(int argc, char *argv[])
     cmd.AddValue("imuVelBias",    "Sensori di bordo: bias lento della velocita' [m/s] (tau 30 s)", imuP.velBias);
     cmd.AddValue("imuScale",      "Sensori di bordo: errore di scala (relativo, 1 sigma)", imuP.scale);
     cmd.AddValue("imuHeadingDeg", "Sensori di bordo: errore della bussola [gradi] (tau 120 s)", imuP.headingDeg);
+    double ppsSawtoothNs = 10.0, ppsNoiseNs = 1.0;
+    cmd.AddValue("ppsSawtoothNs", "PPS: quantizzazione a dente di sega, uniforme +-[ns] (0 = compensata con qErr)", ppsSawtoothNs);
+    cmd.AddValue("ppsNoiseNs",    "PPS: rumore gaussiano residuo [ns]", ppsNoiseNs);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -152,6 +155,7 @@ int main(int argc, char *argv[])
             sp->timeOffsetS = 1e-6;
             sp->startS      = spoofTime >= 0.0 ? spoofTime : attackTime;
             UwbSecurityApp::SetGnssSpoofer(sp, "gnss_log.csv");
+            UwbSecurityApp::SetPps(ppsSawtoothNs, ppsNoiseNs, "pps_log.csv");
             std::cout << ">>> Spoofer esterno: antenna (" << sp->antenna.transpose() << ") attivo da t=" << sp->startS
                       << " s; l'attacco interno (--targetsId) e' disattivato" << std::endl;
         }

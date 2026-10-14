@@ -34,6 +34,12 @@ namespace ns3 {
         void SetImuVelocity(double vx, double vy, double vz) { m_hasImuVel = true; m_imuVel[0] = vx; m_imuVel[1] = vy; m_imuVel[2] = vz; }
         bool HasImuVelocity() const { return m_hasImuVel; }
         double GetImuVelocity(int i) const { return m_imuVel[i]; }
+        // PPS marcato con l'orologio UWB del mittente (9.1), solo sotto cattura: bit 3 dei flag + secondo (mod 256,
+        // 1 byte) + timestamp a 40 bit (5 byte)
+        void SetPps(uint8_t sec, uint64_t stamp) { m_hasPps = true; m_ppsSec = sec; m_ppsStamp = stamp & ((1ULL << 40) - 1); }
+        bool HasPps() const { return m_hasPps; }
+        uint8_t GetPpsSec() const { return m_ppsSec; }
+        uint64_t GetPpsStamp() const { return m_ppsStamp; }
         bool GetSwarmCapture() const { return m_swarmCapture; }
 
         // age = secondi trascorsi tra la misura del range e la trasmissione del pacchetto
@@ -100,6 +106,9 @@ namespace ns3 {
         bool m_swarmCapture = false;
         bool m_hasImuVel = false;
         double m_imuVel[3] = { 0, 0, 0 };
+        bool m_hasPps = false;
+        uint8_t m_ppsSec = 0;
+        uint64_t m_ppsStamp = 0;
 
         // Range condivisi: solo quelli effettivamente misurati (ID bersaglio -> range [m], eta' [s]).
         // Sul pacchetto: 1 byte = numero di range, poi per ognuno 2 byte ID + 4 byte range in mm

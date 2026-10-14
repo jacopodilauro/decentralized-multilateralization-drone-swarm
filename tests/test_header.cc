@@ -180,6 +180,22 @@ int main()
               std::fabs(ob.GetImuVelocity(2) - 0.05) < 0.006, "velocita' entro 1 cm/s");
     }
 
+    // PPS marcato con l'orologio UWB (9.1): 6 byte solo se presente, timestamp a 40 bit intero
+    {
+        std::printf("[PPS nel pacchetto]\n");
+        UwbHeader a, b;
+        const uint64_t st = (1ULL << 40) - 12345;
+        b.SetPps(201, st);
+        CHECK(b.GetSerializedSize() == a.GetSerializedSize() + 6, "6 byte solo se presente");
+        uint32_t w = 0;
+        UwbHeader ob = RoundTrip(b, &w);
+        CHECK(ob.HasPps() && ob.GetPpsSec() == 201 && ob.GetPpsStamp() == st, "secondo e timestamp a 40 bit esatti");
+        UwbHeader c; c.SetImuVelocity(1, 2, 3); c.SetPps(7, 42);
+        UwbHeader oc = RoundTrip(c, &w);
+        CHECK(oc.HasImuVelocity() && oc.HasPps() && oc.GetPpsStamp() == 42 && std::fabs(oc.GetImuVelocity(2) - 3) < 0.006,
+              "velocita' e PPS insieme");
+    }
+
     // Sovrascrittura: l'ultimo valore impostato vince
     {
         std::printf("[sovrascrittura dello stesso ID]\n");

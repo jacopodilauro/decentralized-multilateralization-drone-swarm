@@ -278,7 +278,16 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         129 m. Diagnosi: il riferimento stimato ruota di ~3-5 gradi/s (picchi 60-90 gradi/s); la forma dei base e'
         buona (errore per drone 0,16-0,21 m mediana, p95 0,44-0,60 m); gli ospiti molto peggio (osservatore 12:
         5 m / 25 m). Conclusione: l'8.2c e' indispensabile per la Fase 9
-  - [ ] 9.1 Sincronizzazione reale: PPS marcato con l'orologio UWB e offset tra orologi dai timestamp DS-TWR
+  - [x] 9.1 Sincronizzazione reale. Sotto cattura ogni drone genera il PPS a ogni secondo intero (istante vero
+        N + bias stimato - bias vero + dente di sega uniforme +-`--ppsSawtoothNs` (10) + rumore `--ppsNoiseNs` (1);
+        fonti: u-blox, quantizzazione compensabile con qErr di UBX-TIM-TP, ~+-10 ns su M8N, <= 20 ns su LEA-M8F),
+        lo marca con il proprio orologio UWB e lo annuncia (bit 3 dei flag + 6 byte). Ogni osservatore stima la
+        relazione tra l'orologio del mittente e il suo (retta su 20 coppie tx/rx - volo dall'ultimo DS-TWR) e scrive
+        in `pps_log.csv` la differenza di PPS misurata e quella ideale. IPOTESI: il PPS segue subito il tempo falso.
+        `spoofer_locate.py` usa pps_log (TDoA con una costante per secondo). Seed 1, spoofer a 500 m, da 60 s in poi:
+        errore di sincronizzazione std 2,47 m (atteso dal solo dente di sega: 2,45 m) -> direzione 0,54 gradi
+        (oss. 1), 0,15 (oss. 5); con qErr compensato (`--ppsSawtoothNs=0`): 0,50 m -> 0,23 e 0,12 gradi. Elevazione
+        1,3-2 gradi; distanza non determinata (9.2). Senza spoofer: identico al 6.2
   - [ ] 9.2 Localizzazione nel simulatore (online): filtro sulla posizione dello spoofer che stima anche la lenta
         deriva del riferimento (per recuperare la distanza)
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
@@ -315,3 +324,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 8.2b | relative uwb localization under capture | Forma 0,22 m sotto cattura (8.2a: 645 m); il riferimento scivola (340 m, 125 gradi) |
 | 2026-10-14 | 9.0 | add spoofer localization from swarm geometry | Con la geometria dello sciame: 18,5 gradi senza 8.2c, 0,88 gradi con 8.2c ideale |
 | 2026-10-14 | 8.2c | anchor the frame with onboard sensors | Deriva 340 m -> 4,7 m; direzione reale dello spoofer 0,6-1,6 gradi; distanza ancora aperta |
+| 2026-10-14 | 9.1 | real pps synchronization over uwb clocks | Senza ipotesi ideali sulla misura: direzione 0,1-0,5 gradi |

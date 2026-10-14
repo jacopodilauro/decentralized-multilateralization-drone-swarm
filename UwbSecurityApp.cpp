@@ -29,6 +29,18 @@ uint32_t UwbSecurityApp::s_shareK = 10;
 bool UwbSecurityApp::s_shareOldest = true;
 int UwbSecurityApp::s_anchorModel = 2;
 bool UwbSecurityApp::s_imuOn = true;
+double UwbSecurityApp::s_ppsSawtoothS = 10e-9;
+double UwbSecurityApp::s_ppsNoiseS = 1e-9;
+std::ofstream UwbSecurityApp::s_ppsLog;
+
+void UwbSecurityApp::SetPps(double sawtoothNs, double noiseNs, const std::string& logPath) {
+    s_ppsSawtoothS = sawtoothNs * 1e-9;
+    s_ppsNoiseS = noiseNs * 1e-9;
+    if (!logPath.empty()) {
+        s_ppsLog.open(logPath);
+        s_ppsLog << "time,observer,sender,sec,d_meas_m,d_ideal_m,n_pairs\n" << std::fixed << std::setprecision(4);
+    }
+}
 imu::Params UwbSecurityApp::s_imuParams;
 
 // Varianza dell'errore di un DS-TWR dal modello di canale: LOS N(0, 0.10) per messaggio (~7 cm sul DS-TWR,
@@ -124,6 +136,7 @@ m_rng.seed(seq);
         if (s_spoofer) m_gnss->SetSpoofer(s_spoofer);
     }
     m_imu = imu::Sensor(s_imuParams, base ^ (0xD1B54A32D192ED03ULL * (m_id + 1)) ^ 0x1A0ULL);   // RNG proprio
+    m_ppsRng.seed(base ^ (0x94D049BB133111EBULL * (m_id + 1)) ^ 0x995ULL);
 
     if (s_rangingDsTwr) {
         // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
@@ -162,10 +175,32 @@ void UwbSecurityApp::StartApplication() {
         double frameDuration = m_swarmSize * m_slotDuration;
         m_macStateEvent = Simulator::Schedule(Seconds(frameDuration), &UwbSecurityApp::EvaluateMacState, this);
     }
+    if (s_spoofer) {   // PPS ogni secondo intero (agisce solo sotto cattura): nessun effetto senza spoofer
+        double now = Simulator::Now().GetSeconds();
+        m_ppsEvent = Simulator::Schedule(Seconds(std::ceil(now + 1e-9) - now), &UwbSecurityApp::OnPps, this);
+    }
+}
+
+void UwbSecurityApp::OnPps() {
+    double now = Simulator::Now().GetSeconds();
+    int N = (int)std::lround(now);
+    m_ppsEvent = Simulator::Schedule(Seconds(1.0), &UwbSecurityApp::OnPps, this);
+    if (!m_relMode || !m_gnss) return;
+    // Il PPS scatta all'istante vero N + (bias stimato - bias vero) + quantizzazione/rumore del ricevitore e viene
+    // marcato con l'orologio UWB di questo drone (offset, deriva, jitter: ClockModel)
+    ns3::Vector p = GetNode()->GetObject<MobilityModel>()->GetPosition();
+    gnss::Fix f = m_gnss->Measure(Eigen::Vector3d(p.x, p.y, p.z), now);
+    if (!f.ok) return;
+    std::uniform_real_distribution<double> u(-1.0, 1.0);
+    std::normal_distribution<double> n(0.0, 1.0);
+    double tPps = now + f.ppsErrorS + s_ppsSawtoothS * u(m_ppsRng) + s_ppsNoiseS * n(m_ppsRng);
+    m_ownPps[(uint8_t)(N & 255)] = { m_uwbClock.Stamp(tPps, m_clockRng), f.ppsErrorS, now };
+    m_lastPpsSec = N;
 }
 
 void UwbSecurityApp::StopApplication() {
     Simulator::Cancel(m_macStateEvent);
+    Simulator::Cancel(m_ppsEvent);
     if (m_socket) m_socket->Close();
     Simulator::Cancel(m_sendEvent);
 }
@@ -229,6 +264,10 @@ void UwbSecurityApp::SendUwbMessage() {
     if (m_gnss) { double c[6]; CovToArray(m_lastGnssFix.covInd, c); header.SetGpsCov(c); }
     header.SetImLeaving(m_imLeaving);
     header.SetSwarmCapture(m_swarmCaptured);
+    if (m_relMode && m_lastPpsSec >= 0) {   // 9.1: il mio ultimo PPS, marcato con il mio orologio UWB
+        uint8_t k = (uint8_t)(m_lastPpsSec & 255);
+        header.SetPps(k, m_ownPps[k].stamp);
+    }
     if (s_imuOn && m_relMode) {   // 8.2c: mia velocita' dai sensori di bordo, nel filtro su me stesso e nel pacchetto
         double tNow = Simulator::Now().GetSeconds();
         ns3::Vector vt = GetNode()->GetObject<MobilityModel>()->GetVelocity();
@@ -628,6 +667,45 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             }
         }
         m_lastRx[senderId] = cur;
+
+        // 9.1: relazione tra l'orologio del mittente e il mio: tx (suo) <-> rx (mio) - tempo di volo dall'ultimo
+        // DS-TWR. Ultime 20 coppie (~2 s), solo sotto cattura
+        if (m_relMode && m_myLastRanges.size() > senderId && m_myLastRanges[senderId] > 0.0) {
+            int64_t tof = (int64_t)std::llround(m_myLastRanges[senderId] / c / uwbclock::TICK_S);
+            uint64_t rxc = (rxStamp - (uint64_t)tof) & ((1ULL << 40) - 1);
+            auto& dq = m_clockPairs[senderId];
+            dq.emplace_back(cur.txStamp, rxc);
+            while (dq.size() > 20) dq.pop_front();
+        }
+    }
+
+    // 9.1: PPS del mittente riportato nel mio orologio e confrontato con il mio PPS dello stesso secondo
+    if (m_relMode && header.HasPps() && s_ppsLog.is_open()) {
+        uint8_t sec = header.GetPpsSec();
+        auto own = m_ownPps.find(sec);
+        auto& dq = m_clockPairs[senderId];
+        int key = sec;
+        if (own != m_ownPps.end() && currentTime - own->second.t < 2.0 && dq.size() >= 5 &&
+            (!m_lastPpsFrom.count(senderId) || m_lastPpsFrom[senderId] != key)) {
+            m_lastPpsFrom[senderId] = key;
+            // retta rx = a + b tx sulle differenze rispetto all'ultima coppia (contatori a 40 bit)
+            const auto& ref = dq.back();
+            double sx = 0, sy = 0, sxx = 0, sxy = 0; int nn = 0;
+            for (const auto& [tx, rx] : dq) {
+                double x = (double)uwbclock::TickDiff(ref.first, tx), y = (double)uwbclock::TickDiff(ref.second, rx);
+                sx += x; sy += y; sxx += x * x; sxy += x * y; nn++;
+            }
+            double den = nn * sxx - sx * sx;
+            if (std::fabs(den) > 0.0) {
+                double b = (nn * sxy - sx * sy) / den, a = (sy - b * sx) / nn;
+                double xT = (double)uwbclock::TickDiff(ref.first, header.GetPpsStamp());
+                double dTicks = (double)uwbclock::TickDiff(own->second.stamp, ref.second) + a + b * xT;
+                double dMeas = dTicks * uwbclock::TICK_S * c;
+                double dIdeal = (senderApp->GetPpsTrueErr(sec) - own->second.trueErr) * c;
+                s_ppsLog << currentTime << ',' << m_id << ',' << senderId << ',' << (m_lastPpsSec - ((m_lastPpsSec - sec) & 255))
+                         << ',' << dMeas << ',' << dIdeal << ',' << nn << '\n';
+            }
+        }
     }
 
     if (haveDirect) {

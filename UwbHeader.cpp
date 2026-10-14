@@ -29,6 +29,7 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += 24; // m_gpsX, m_gpsY, m_gpsZ
     size += 1;  // m_imLeaving (e flag)
     if (m_hasImuVel) size += 6;
+    if (m_hasPps) size += 6;
     
     // Gossip dei Leave volontari
     size += 1;                           
@@ -59,10 +60,16 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     std::memcpy(&x_bytes, &m_gpsX, 8); std::memcpy(&y_bytes, &m_gpsY, 8); std::memcpy(&z_bytes, &m_gpsZ, 8);
     start.WriteU64 (x_bytes); start.WriteU64 (y_bytes); start.WriteU64 (z_bytes);
     
-    start.WriteU8 ((m_imLeaving ? 1 : 0) | (m_swarmCapture ? 2 : 0) | (m_hasImuVel ? 4 : 0));   // bit 0 leave, 1 cattura, 2 velocita'
+    start.WriteU8 ((m_imLeaving ? 1 : 0) | (m_swarmCapture ? 2 : 0) | (m_hasImuVel ? 4 : 0) | (m_hasPps ? 8 : 0));
+    // bit 0 leave, 1 cattura, 2 velocita', 3 PPS
     if (m_hasImuVel)
         for (int i = 0; i < 3; i++)
             start.WriteHtonU16 ((uint16_t)(int16_t)std::lround(std::clamp(m_imuVel[i] * 100.0, -32767.0, 32767.0)));
+    if (m_hasPps) {
+        start.WriteU8 (m_ppsSec);
+        start.WriteU8 ((uint8_t)(m_ppsStamp >> 32));
+        start.WriteHtonU32 ((uint32_t)(m_ppsStamp & 0xFFFFFFFFULL));
+    }
     
     // Scriviamo Gossip
     start.WriteU8(m_gossipLeaves.size());
@@ -128,6 +135,12 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     m_hasImuVel    = (flags & 4) != 0;
     if (m_hasImuVel)
         for (int i = 0; i < 3; i++) m_imuVel[i] = (int16_t)start.ReadNtohU16 () / 100.0;
+    m_hasPps = (flags & 8) != 0;
+    if (m_hasPps) {
+        m_ppsSec = start.ReadU8 ();
+        uint64_t hi = start.ReadU8 ();
+        m_ppsStamp = (hi << 32) | start.ReadNtohU32 ();
+    }
     
     uint8_t gossipSize = start.ReadU8();
     m_gossipLeaves.clear();

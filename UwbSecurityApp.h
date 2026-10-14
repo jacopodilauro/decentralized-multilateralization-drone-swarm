@@ -62,6 +62,10 @@ public:
     static void SetAnchorModel(int m) { s_anchorModel = m; }
     // Sensori di bordo indipendenti dal GPS (8.2c): sotto cattura ogni drone misura e annuncia la propria velocita'
     static void SetImu(bool on, const imu::Params& p) { s_imuOn = on; s_imuParams = p; }
+    // PPS del ricevitore GNSS (9.1): dente di sega uniforme +-sawtooth (quantizzazione, compensabile con qErr) +
+    // rumore gaussiano residuo; log delle differenze di PPS per osservatore (pps_log.csv)
+    static void SetPps(double sawtoothNs, double noiseNs, const std::string& logPath);
+    double GetPpsTrueErr(uint8_t sec) const { auto it = m_ownPps.find(sec); return it == m_ownPps.end() ? NAN : it->second.trueErr; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -174,6 +178,17 @@ private:
     static imu::Params  s_imuParams;
     imu::Sensor     m_imu;
     std::map<uint32_t, std::pair<Eigen::Vector3d, double>> m_peerImuVel;   // (velocita' annunciata, istante)
+    // 9.1: PPS marcato con l'orologio UWB; relazione tra il mio orologio e quello di ogni mittente
+    static double s_ppsSawtoothS, s_ppsNoiseS;
+    static std::ofstream s_ppsLog;
+    struct OwnPps { uint64_t stamp; double trueErr; double t; };
+    std::map<uint8_t, OwnPps> m_ownPps;        // per secondo (mod 256)
+    int      m_lastPpsSec = -1;
+    EventId  m_ppsEvent;
+    std::mt19937_64 m_ppsRng{ 7 };
+    void     OnPps();
+    std::map<uint32_t, std::deque<std::pair<uint64_t, uint64_t>>> m_clockPairs;   // (tx mittente, rx mio - volo)
+    std::map<uint32_t, int> m_lastPpsFrom;    // ultimo secondo di PPS elaborato per mittente
     std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
     std::map<uint32_t, Eigen::Matrix3d> m_lastKnownGpsCov;   // covarianza GPS individuale dichiarata [m^2]
     // Cattura dello sciame (Fase 8): frazione di coppie di altri droni la cui distanza dai GPS dichiarati e'

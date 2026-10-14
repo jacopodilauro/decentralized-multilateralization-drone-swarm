@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Localizzazione dello spoofer con la geometria STIMATA dallo sciame (Fase 9, primo passo, analisi dei log).
 
-Uso: python3 tools/spoofer_locate.py runs/<etichetta>/seed1 [--observer 1] [--window 20] [--jitter-ns 0]
-                                    [--png figura.png]
+Uso: python3 tools/spoofer_locate.py runs/<etichetta>/seed1 [--observer 1] [--png figura.png] [--legacy]
+
+Dal 9.1, se la run ha pps_log.csv: differenze di PPS misurate davvero (PPS con quantizzazione/rumore del
+ricevitore, marcato con l'orologio UWB, riportato nell'orologio dell'osservatore con la relazione tra orologi
+stimata dai pacchetti); TDoA con una costante per secondo. Colonne: geometria e sync ideali | geometria stimata +
+sync ideale | geometria stimata + sync REALE (nessuna ipotesi ideale). Con --legacy l'analisi del 9.0/8.2c:
 
 Per un drone osservatore, sotto consenso di cattura (8.2b): ogni PPS del drone j (1 Hz) da' una misura
 r_j = |p_j - s| + c*beta, con p_j = STIMA dell'osservatore (localizzazione relativa UWB), non la verita'.
@@ -23,6 +27,100 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spoofer_view import antenna_from_stdout, solve_toa  # noqa: E402
+
+
+def solve_tdoa_epochs(P, d, ep):
+    """TDoA con una costante incognita per epoca (secondo): d_k = |p_k - s| - |p_ref(ep) - s| + cost(ep).
+    Sottraendo la media di ogni epoca la costante sparisce. Gauss-Newton da 12 direzioni a 300 m."""
+    c0 = P.mean(axis=0)
+    _, inv = np.unique(ep, return_inverse=True)
+    cnt = np.bincount(inv)
+    dm = d - (np.bincount(inv, d) / cnt)[inv]
+    best, best_res = None, np.inf
+    for a in range(12):
+        s = c0 + 300 * np.array([np.cos(a * np.pi / 6), np.sin(a * np.pi / 6), -0.1])
+        for _ in range(40):
+            v = s - P
+            rho = np.linalg.norm(v, axis=1)
+            u = v / rho[:, None]
+            res = dm - (rho - (np.bincount(inv, rho) / cnt)[inv])
+            H = u - np.stack([np.bincount(inv, u[:, i]) / cnt for i in range(3)], axis=1)[inv]
+            dx = np.linalg.lstsq(H, res, rcond=None)[0]
+            s = s + dx
+            if np.linalg.norm(s - c0) > 20000:
+                s = c0 + 20000 * (s - c0) / np.linalg.norm(s - c0)
+            if np.linalg.norm(dx) < 1e-3:
+                break
+        rho = np.linalg.norm(s - P, axis=1)
+        rr = np.sum((dm - (rho - (np.bincount(inv, rho) / cnt)[inv])) ** 2)
+        if rr < best_res:
+            best, best_res = s.copy(), rr
+    return best
+
+
+def pps_mode(a, s_true, d):
+    """9.1: differenze di PPS misurate nell'orologio UWB dell'osservatore (pps_log.csv): sincronizzazione reale."""
+    pl = pd.read_csv(os.path.join(a.rundir, "pps_log.csv"))
+    pl = pl[pl.observer == a.observer].sort_values("time")
+    o = d[(d.observer_id == a.observer) & (d.capture_consensus == 1)].sort_values("time")
+    rows = []
+    for j, pj in pl.groupby("sender"):
+        oj = o[o.sender_id == j][["time", "est_x", "est_y", "est_z", "true_x", "true_y", "true_z"]]
+        if oj.empty:
+            continue
+        pj = pj.assign(tq=pj.sec.astype(float))   # posizione all'istante del PPS (secondo intero)
+        m = pd.merge_asof(pj.sort_values("tq"), oj.rename(columns={"time": "tq"}), on="tq",
+                          direction="nearest", tolerance=0.2)
+        rows.append(m.dropna(subset=["est_x"]))
+    m = pd.concat(rows).sort_values("sec")
+    m = m[m.groupby("sec").sender.transform("size") >= 4]
+    E = m[["est_x", "est_y", "est_z"]].values
+    T = m[["true_x", "true_y", "true_z"]].values
+    ep = m.sec.values
+    sync = np.std(m.d_meas_m - m.d_ideal_m)
+    print(f"Spoofer vero {np.round(s_true, 1)}; osservatore {a.observer}; {m.sender.nunique()} droni, {len(m)} differenze "
+          f"di PPS; errore di sincronizzazione (misura - ideale) std {sync:.2f} m")
+    print("Nessuna ipotesi ideale nella colonna di destra (geometria stimata, PPS e orologi UWB reali).\n")
+    print(f"{'dopo':>6s} | {'geometria e sync ideali':^27s} | {'stimata + sync ideale':^27s} | "
+          f"{'stimata + sync REALE':^27s}")
+    t0 = ep.min()
+    out = []
+    for T_end in np.arange(5, ep.max() - t0 + 1e-6, 5.0):
+        k = ep <= t0 + T_end
+        if np.unique(ep[k]).size < 3:
+            continue
+        c = T[k & (ep > t0 + T_end - 5)].mean(axis=0)
+        res = [T_end]
+        for P_, dd in ((T, m.d_ideal_m.values), (E, m.d_ideal_m.values), (E, m.d_meas_m.values)):
+            res += list(errors(solve_tdoa_epochs(P_[k], dd[k], ep[k]), c, s_true))
+        out.append(res)
+        print(f"{T_end:5.0f}s | {res[1]:+7.2f}° {res[2]:+6.2f}° {res[3]:+8.0f}m | {res[4]:+7.2f}° {res[5]:+6.2f}° "
+              f"{res[6]:+8.0f}m | {res[7]:+7.2f}° {res[8]:+6.2f}° {res[9]:+8.0f}m")
+    out = np.array(out)
+    late = out[:, 0] >= 60
+    for name, k in (("geometria e sync ideali", 1), ("stimata + sync ideale", 4), ("stimata + sync REALE", 7)):
+        print(f"  da 60 s in poi, {name:24s}: |azimut| mediano {np.median(np.abs(out[late, k])):5.2f}°, "
+              f"|elevazione| {np.median(np.abs(out[late, k + 1])):5.2f}°, |distanza| mediana "
+              f"{np.median(np.abs(out[late, k + 2])):6.0f} m")
+    if a.png:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+        for k, lab, st in ((1, "geometria e sincronizzazione ideali", "k--"),
+                           (4, "geometria stimata dallo sciame, sincronizzazione ideale", "C0-"),
+                           (7, "geometria stimata + sincronizzazione reale (PPS + orologi UWB)", "C3-")):
+            ax[0].plot(out[:, 0], np.abs(out[:, k]), st, label=lab)
+            ax[1].plot(out[:, 0], np.abs(out[:, k + 2]), st, label=lab)
+        ax[0].set_ylabel("errore di azimut [gradi]"); ax[1].set_ylabel("errore di distanza [m]")
+        ax[0].set_yscale("log"); ax[1].set_yscale("log")
+        for x_ in ax:
+            x_.set_xlabel("secondi dall'inizio della localizzazione"); x_.grid(alpha=.3)
+        ax[0].legend(fontsize=7)
+        fig.suptitle(f"Localizzazione dello spoofer dai PPS dello sciame catturato (osservatore {a.observer}, "
+                     f"jitter PPS reale: errore di sincronizzazione {sync:.1f} m)", fontsize=10)
+        fig.tight_layout(); fig.savefig(a.png, dpi=150)
+        print(f"\nFigura: {a.png}")
 
 
 def kabsch(E, T):
@@ -46,6 +144,7 @@ def main():
     ap.add_argument("--window", type=float, default=20.0)
     ap.add_argument("--jitter-ns", type=float, default=0.0)
     ap.add_argument("--png", default="")
+    ap.add_argument("--legacy", action="store_true", help="analisi del 9.0/8.2c (PPS ideali dal gnss_log)")
     a = ap.parse_args()
 
     s_true, t0 = antenna_from_stdout(os.path.join(a.rundir, "stdout.txt"))
@@ -53,6 +152,8 @@ def main():
     d = pd.read_csv(os.path.join(a.rundir, "tdma_security_log.csv"),
                     usecols=["time", "observer_id", "sender_id", "est_x", "est_y", "est_z",
                              "true_x", "true_y", "true_z", "capture_consensus"])
+    if os.path.exists(os.path.join(a.rundir, "pps_log.csv")) and not a.legacy:
+        return pps_mode(a, s_true, d)
     o = d[d.observer_id == a.observer].sort_values("time")
     cons = o[o.capture_consensus == 1]
     if cons.empty:
@@ -79,7 +180,7 @@ def main():
 
     print(f"Spoofer vero {np.round(s_true, 1)}; osservatore {a.observer}, consenso a t = {t_rel:.2f} s; "
           f"{m.node.nunique()} droni, {len(m)} PPS")
-    print("Ipotesi ideali: sincronizzazione UWB, orientamento nel mondo (allineamento alla verita').\n")
+    print("Ipotesi ideali: sincronizzazione (PPS dal gnss_log); solo la colonna '8.2c ideale' e' allineata alla verita'.\n")
     print(f"{'dopo':>6s} | {'geometria ideale':^27s} | {'stimata (risultato reale)':^27s} | "
           f"{'stimata, 8.2c ideale':^27s}")
     print(f"{'':6s} | {'azimut':>8s} {'elev.':>7s} {'dist.':>9s} | {'azimut':>8s} {'elev.':>7s} {'dist.':>9s} | "
