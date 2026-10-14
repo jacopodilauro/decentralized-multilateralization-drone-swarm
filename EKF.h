@@ -37,6 +37,8 @@ public:
     // Inizializzazione con posizione e velocita' note e la loro incertezza (8.2b: filtro su me stesso)
     void Init(const Eigen::Vector3d& pos, const Eigen::Vector3d& vel, const Eigen::Matrix3d& posCov, double velVar);
     void Predict(double dt);
+    // Misura diretta della velocita' (8.2c: sensori di bordo), lineare: z = v + rumore, covarianza R
+    void UpdateVelocity(const Eigen::Vector3d& v, const Eigen::Matrix3d& R);
     void Update(const std::vector<Msmnt>& measurements);
     double GetClockBias() const { return m_state(6); }
 

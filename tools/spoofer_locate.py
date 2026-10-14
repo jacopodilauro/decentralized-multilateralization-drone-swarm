@@ -8,8 +8,9 @@ Per un drone osservatore, sotto consenso di cattura (8.2b): ogni PPS del drone j
 r_j = |p_j - s| + c*beta, con p_j = STIMA dell'osservatore (localizzazione relativa UWB), non la verita'.
 Minimi quadrati su (s, c*beta). Tre varianti:
   ideale        posizioni vere, misure accumulate dall'inizio della cattura;
-  senza 8.2c    posizioni stimate, solo gli ultimi --window secondi; soluzione riportata nel mondo con la miglior
-                rototraslazione stime -> verita' sulla finestra (il riferimento stimato ruota DENTRO la finestra);
+  stimata       posizioni stimate COSI' COME SONO (nessun allineamento alla verita'), misure accumulate
+                dall'inizio: e' il risultato reale del sistema. Senza 8.2c il riferimento stimato ruota e scivola
+                e il risultato e' inutilizzabile; con 8.2c (sensori di bordo, default) resta agganciato al mondo;
   8.2c ideale   posizioni stimate riportate nel mondo OGNI SECONDO con la miglior rototraslazione (= riferimento
                 ancorato perfettamente, errori di forma intatti), misure accumulate dall'inizio.
 Diagnosi (seed 1): il riferimento stimato ruota di ~3-5 gradi/s (picchi 60-90 gradi/s): e' la causa principale.
@@ -79,7 +80,7 @@ def main():
     print(f"Spoofer vero {np.round(s_true, 1)}; osservatore {a.observer}, consenso a t = {t_rel:.2f} s; "
           f"{m.node.nunique()} droni, {len(m)} PPS")
     print("Ipotesi ideali: sincronizzazione UWB, orientamento nel mondo (allineamento alla verita').\n")
-    print(f"{'dopo':>6s} | {'geometria ideale':^27s} | {'stimata, senza 8.2c (' + str(int(a.window)) + ' s)':^27s} | "
+    print(f"{'dopo':>6s} | {'geometria ideale':^27s} | {'stimata (risultato reale)':^27s} | "
           f"{'stimata, 8.2c ideale':^27s}")
     print(f"{'':6s} | {'azimut':>8s} {'elev.':>7s} {'dist.':>9s} | {'azimut':>8s} {'elev.':>7s} {'dist.':>9s} | "
           f"{'azimut':>8s} {'elev.':>7s} {'dist.':>9s}")
@@ -102,10 +103,9 @@ def main():
         # ideale cumulativa
         x = solve_toa(T[cum], r[cum]); c = T[win].mean(axis=0)
         res += list(errors(x[:3], c, s_true))
-        # senza 8.2c: finestra nel riferimento stimato, riportata nel mondo con l'allineamento della finestra
-        x = solve_toa(E[win], r[win])
-        R, ce, ct = kabsch(E[win], T[win])
-        res += list(errors(R @ (x[:3] - ce) + ct, c, s_true))
+        # stimata cosi' com'e': nessun allineamento
+        x = solve_toa(E[cum], r[cum])
+        res += list(errors(x[:3], c, s_true))
         # 8.2c ideale: riferimento corretto ogni secondo, cumulativa
         kk = cum & okw
         x = solve_toa(Ew[kk], r[kk])
@@ -116,7 +116,7 @@ def main():
     out = np.array(out)
     if len(out):
         late = out[:, 0] >= 20
-        for name, k in (("geometria ideale", 1), ("stimata, senza 8.2c", 4), ("stimata, 8.2c ideale", 7)):
+        for name, k in (("geometria ideale", 1), ("stimata, reale", 4), ("stimata, 8.2c ideale", 7)):
             print(f"  dopo 20 s, {name:19s}: |azimut| mediano {np.median(np.abs(out[late, k])):5.2f}°, "
                   f"|distanza| mediana {np.median(np.abs(out[late, k + 2])):5.0f} m")
 
@@ -126,7 +126,7 @@ def main():
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(1, 2, figsize=(11, 4))
         for k, lab, st in ((1, "geometria ideale (posizioni vere)", "k--"),
-                           (4, f"geometria stimata dallo sciame, senza 8.2c ({int(a.window)} s)", "C3-"),
+                           (4, "geometria stimata dallo sciame (risultato reale)", "C3-"),
                            (7, "geometria stimata dallo sciame, con 8.2c ideale", "C0-")):
             ax[0].plot(out[:, 0], np.abs(out[:, k]), st, label=lab)
             ax[1].plot(out[:, 0], np.abs(out[:, k + 2]), st, label=lab)

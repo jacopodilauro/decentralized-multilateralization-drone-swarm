@@ -167,6 +167,19 @@ int main()
         CHECK(h.GetSerializedSize() == size0, "senza ricevitore GNSS la dimensione non cambia");
     }
 
+    // Velocita' dei sensori di bordo (8.2c): presente solo se impostata, 6 byte, quantizzazione 1 cm/s
+    {
+        std::printf("[velocita' dei sensori di bordo]\n");
+        UwbHeader a, b;
+        b.SetImuVelocity(7.49, -3.21, 0.05);
+        CHECK(b.GetSerializedSize() == a.GetSerializedSize() + 6, "6 byte solo se presente");
+        uint32_t w = 0;
+        UwbHeader oa = RoundTrip(a, &w), ob = RoundTrip(b, &w);
+        CHECK(!oa.HasImuVelocity() && ob.HasImuVelocity(), "flag di presenza");
+        CHECK(std::fabs(ob.GetImuVelocity(0) - 7.49) < 0.006 && std::fabs(ob.GetImuVelocity(1) + 3.21) < 0.006 &&
+              std::fabs(ob.GetImuVelocity(2) - 0.05) < 0.006, "velocita' entro 1 cm/s");
+    }
+
     // Sovrascrittura: l'ultimo valore impostato vince
     {
         std::printf("[sovrascrittura dello stesso ID]\n");

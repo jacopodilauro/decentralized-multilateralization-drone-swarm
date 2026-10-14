@@ -30,6 +30,10 @@ namespace ns3 {
         void SetImLeaving (bool leaving);
         // Il mittente ritiene lo sciame catturato da uno spoofer esterno (Fase 8): bit 1 del byte di imLeaving
         void SetSwarmCapture(bool c) { m_swarmCapture = c; }
+        // Velocita' misurata dai sensori di bordo (8.2c), solo sotto cattura: bit 2 dei flag + 3 x int16 in cm/s
+        void SetImuVelocity(double vx, double vy, double vz) { m_hasImuVel = true; m_imuVel[0] = vx; m_imuVel[1] = vy; m_imuVel[2] = vz; }
+        bool HasImuVelocity() const { return m_hasImuVel; }
+        double GetImuVelocity(int i) const { return m_imuVel[i]; }
         bool GetSwarmCapture() const { return m_swarmCapture; }
 
         // age = secondi trascorsi tra la misura del range e la trasmissione del pacchetto
@@ -94,6 +98,8 @@ namespace ns3 {
         double m_gpsZ;
         bool m_imLeaving;
         bool m_swarmCapture = false;
+        bool m_hasImuVel = false;
+        double m_imuVel[3] = { 0, 0, 0 };
 
         // Range condivisi: solo quelli effettivamente misurati (ID bersaglio -> range [m], eta' [s]).
         // Sul pacchetto: 1 byte = numero di range, poi per ognuno 2 byte ID + 4 byte range in mm

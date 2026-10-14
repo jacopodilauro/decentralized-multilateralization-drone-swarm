@@ -28,6 +28,8 @@ double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta
 uint32_t UwbSecurityApp::s_shareK = 10;
 bool UwbSecurityApp::s_shareOldest = true;
 int UwbSecurityApp::s_anchorModel = 2;
+bool UwbSecurityApp::s_imuOn = true;
+imu::Params UwbSecurityApp::s_imuParams;
 
 // Varianza dell'errore di un DS-TWR dal modello di canale: LOS N(0, 0.10) per messaggio (~7 cm sul DS-TWR,
 // 0.01 con margine); NLOS: un messaggio con U(0.3, 2.5) + N(0, 0.5), pesato ~1/4-1/2 -> ~0.33 m^2
@@ -121,6 +123,7 @@ m_rng.seed(seq);
         m_gnss = std::make_unique<gnss::Receiver>(s_constellation, base ^ (0x9E3779B97F4A7C15ULL * (m_id + 1)) ^ 0x47AA55ULL);
         if (s_spoofer) m_gnss->SetSpoofer(s_spoofer);
     }
+    m_imu = imu::Sensor(s_imuParams, base ^ (0xD1B54A32D192ED03ULL * (m_id + 1)) ^ 0x1A0ULL);   // RNG proprio
 
     if (s_rangingDsTwr) {
         // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
@@ -226,6 +229,14 @@ void UwbSecurityApp::SendUwbMessage() {
     if (m_gnss) { double c[6]; CovToArray(m_lastGnssFix.covInd, c); header.SetGpsCov(c); }
     header.SetImLeaving(m_imLeaving);
     header.SetSwarmCapture(m_swarmCaptured);
+    if (s_imuOn && m_relMode) {   // 8.2c: mia velocita' dai sensori di bordo, nel filtro su me stesso e nel pacchetto
+        double tNow = Simulator::Now().GetSeconds();
+        ns3::Vector vt = GetNode()->GetObject<MobilityModel>()->GetVelocity();
+        Eigen::Vector3d v = m_imu.Measure(Eigen::Vector3d(vt.x, vt.y, vt.z), tNow);
+        header.SetImuVelocity(v.x(), v.y(), v.z());
+        SelfAt(tNow, nullptr);
+        m_selfEkf.UpdateVelocity(v, m_imu.Cov(v));
+    }
 
     if (s_rangingDsTwr) {
         // Timestamp UWB di trasmissione + istanti in cui ho ricevuto l'ultimo pacchetto di ciascun vicino
@@ -484,6 +495,9 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         // --- 3. LOGICA DI EKF E ALARMS ---
         m_peerCapture[senderId] = { header.GetSwarmCapture(), Simulator::Now().GetSeconds() };
+        if (header.HasImuVelocity())
+            m_peerImuVel[senderId] = { Eigen::Vector3d(header.GetImuVelocity(0), header.GetImuVelocity(1), header.GetImuVelocity(2)),
+                                       Simulator::Now().GetSeconds() };
         std::vector<uint8_t> rxAlarms = header.GetAlarmsList();
         
         for (uint32_t j = 0; j < m_swarmSize; ++j) {
@@ -728,6 +742,14 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         m_ekfBank[senderId].Update(inputData);
     }
     m_lastCalcTime[senderId] = currentTime;
+
+    // 8.2c: velocita' annunciata dal mittente (sensori di bordo), se fresca. Stessi sensori per tutti i droni:
+    // la covarianza e' quella del mio modello
+    if (m_relMode && s_imuOn) {
+        auto iv = m_peerImuVel.find(senderId);
+        if (iv != m_peerImuVel.end() && currentTime - iv->second.second <= 0.15)
+            m_ekfBank[senderId].UpdateVelocity(iv->second.first, m_imu.Cov(iv->second.first));
+    }
 
     // 8.2b: aggiorno anche me stesso con la distanza diretta, ancora = stima del mittente al messaggio centrale
     if (m_relMode && haveDirect && s_rangingDsTwr) {

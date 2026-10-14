@@ -27,7 +27,8 @@ uint32_t UwbHeader::GetSerializedSize(void) const {
     size += 4;  // m_senderId
     size += 8;  // m_txTimestampPs
     size += 24; // m_gpsX, m_gpsY, m_gpsZ
-    size += 1;  // m_imLeaving  
+    size += 1;  // m_imLeaving (e flag)
+    if (m_hasImuVel) size += 6;
     
     // Gossip dei Leave volontari
     size += 1;                           
@@ -58,7 +59,10 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     std::memcpy(&x_bytes, &m_gpsX, 8); std::memcpy(&y_bytes, &m_gpsY, 8); std::memcpy(&z_bytes, &m_gpsZ, 8);
     start.WriteU64 (x_bytes); start.WriteU64 (y_bytes); start.WriteU64 (z_bytes);
     
-    start.WriteU8 ((m_imLeaving ? 1 : 0) | (m_swarmCapture ? 2 : 0));   // bit 0 leave, bit 1 cattura
+    start.WriteU8 ((m_imLeaving ? 1 : 0) | (m_swarmCapture ? 2 : 0) | (m_hasImuVel ? 4 : 0));   // bit 0 leave, 1 cattura, 2 velocita'
+    if (m_hasImuVel)
+        for (int i = 0; i < 3; i++)
+            start.WriteHtonU16 ((uint16_t)(int16_t)std::lround(std::clamp(m_imuVel[i] * 100.0, -32767.0, 32767.0)));
     
     // Scriviamo Gossip
     start.WriteU8(m_gossipLeaves.size());
@@ -121,6 +125,9 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     uint8_t flags = start.ReadU8 ();
     m_imLeaving    = (flags & 1) != 0;
     m_swarmCapture = (flags & 2) != 0;
+    m_hasImuVel    = (flags & 4) != 0;
+    if (m_hasImuVel)
+        for (int i = 0; i < 3; i++) m_imuVel[i] = (int16_t)start.ReadNtohU16 () / 100.0;
     
     uint8_t gossipSize = start.ReadU8();
     m_gossipLeaves.clear();

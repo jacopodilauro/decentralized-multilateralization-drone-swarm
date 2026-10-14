@@ -10,6 +10,7 @@
 #include "EKF.h"
 #include "ClockModel.h"
 #include "GnssModel.h"
+#include "ImuModel.h"
 #include "random"
 
 #include <Eigen/Dense>
@@ -59,6 +60,8 @@ public:
     //   1 r:        R_i += u' Sigma_ancora u, test con S = P + Sigma_mittente
     //   2 consider: come r, e nel test anche la covarianza del bias dovuto alle ancore (lento)
     static void SetAnchorModel(int m) { s_anchorModel = m; }
+    // Sensori di bordo indipendenti dal GPS (8.2c): sotto cattura ogni drone misura e annuncia la propria velocita'
+    static void SetImu(bool on, const imu::Params& p) { s_imuOn = on; s_imuParams = p; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
 
@@ -167,6 +170,10 @@ private:
     static uint32_t s_shareK;
     static bool     s_shareOldest;
     static int      s_anchorModel;
+    static bool         s_imuOn;
+    static imu::Params  s_imuParams;
+    imu::Sensor     m_imu;
+    std::map<uint32_t, std::pair<Eigen::Vector3d, double>> m_peerImuVel;   // (velocita' annunciata, istante)
     std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
     std::map<uint32_t, Eigen::Matrix3d> m_lastKnownGpsCov;   // covarianza GPS individuale dichiarata [m^2]
     // Cattura dello sciame (Fase 8): frazione di coppie di altri droni la cui distanza dai GPS dichiarati e'

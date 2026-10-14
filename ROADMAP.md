@@ -255,9 +255,18 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         8.2a: 645 / 1.475 m); pos_std 0,18 m. MA il riferimento scivola: traslazione 340 m, rotazione 125 gradi
         (mediane). Fisica: posizione e orientamento dell'insieme non sono osservabili da sole distanze; la velocita'
         comune fa un random walk (~t^1,5). Senza spoofer: metriche identiche al 6.2
-  - [ ] 8.2c Ancorare il riferimento sotto cattura con i sensori di bordo indipendenti dal GPS (velocita' da IMU/
-        odometria visiva, direzione da bussola), da condividere nel pacchetto: serve per dare allo spoofer una
-        direzione nel mondo (Fase 9)
+  - [x] 8.2c Ancoraggio del riferimento sotto cattura con i sensori di bordo (`ImuModel.h`): velocita' nord/est/su
+        con rumore 0,2 m/s, bias Gauss-Markov 0,3 m/s / 30 s, scala 3%, bussola 3 gradi / 120 s (valori prudenti da
+        letteratura sull'optical flow; bussola = IPOTESI). Sotto cattura ogni drone usa la propria velocita' misurata
+        nel filtro su se stesso e la annuncia nel pacchetto (bit 2 dei flag + 6 byte); ogni osservatore la usa nel
+        filtro del mittente (`EKF::UpdateVelocity`). Opzioni `--imu` (default 1, agisce solo sotto cattura),
+        `--imuVelNoise/VelBias/Scale/HeadingDeg`. Seed 1, spoofer a 100 s, con / senza: forma mediana 0,19 / 0,22 m,
+        p95 0,28 / 1,58 m; deriva del riferimento 4,7 m / 340 m e 8,3 / 125 gradi. Localizzazione REALE (nessun
+        aiuto ideale sulla geometria; sincronizzazione ancora ideale), dopo 20 s: direzione 0,62 gradi (osservatore 1)
+        e 1,58 gradi (osservatore 5), contro 86 gradi senza 8.2c; distanza ancora NON determinata accumulando tutte le
+        misure (la deriva residua cancella la curvatura del fronte d'onda, pochi cm a 500 m); con finestre di 30-60 s
+        determinata nel 73-88% dei casi, errore 160-300 m, ma direzione 2,6-4,4 gradi. Con "8.2c ideale" la distanza
+        arriva a +22...+35 m: la forma basta, serve modellare la deriva (9.2). Senza spoofer: identico al 6.2
   - [x] Nota di metodo (7.2), risolta dall'8.2a: sotto cattura il sistema era caotico; tra macchine diverse le metriche dello
         scenario con spoofer differiscono (es. allarmi 83,3% contro 84,5%) per arrotondamenti di 1e-10 (verificato
         ricompilando con contrazione FMA). Confronti tra macchine: con tolleranza e su piu' seed
@@ -270,7 +279,8 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         buona (errore per drone 0,16-0,21 m mediana, p95 0,44-0,60 m); gli ospiti molto peggio (osservatore 12:
         5 m / 25 m). Conclusione: l'8.2c e' indispensabile per la Fase 9
   - [ ] 9.1 Sincronizzazione reale: PPS marcato con l'orologio UWB e offset tra orologi dai timestamp DS-TWR
-  - [ ] 9.2 Localizzazione nel simulatore (online), EKF sulla posizione dello spoofer
+  - [ ] 9.2 Localizzazione nel simulatore (online): filtro sulla posizione dello spoofer che stima anche la lenta
+        deriva del riferimento (per recuperare la distanza)
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -304,3 +314,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 8.2a | capture consensus, stop gps anchors | Consenso 20/20 in 1,05 s; niente piu' caos (build diverse identiche) |
 | 2026-10-14 | 8.2b | relative uwb localization under capture | Forma 0,22 m sotto cattura (8.2a: 645 m); il riferimento scivola (340 m, 125 gradi) |
 | 2026-10-14 | 9.0 | add spoofer localization from swarm geometry | Con la geometria dello sciame: 18,5 gradi senza 8.2c, 0,88 gradi con 8.2c ideale |
+| 2026-10-14 | 8.2c | anchor the frame with onboard sensors | Deriva 340 m -> 4,7 m; direzione reale dello spoofer 0,6-1,6 gradi; distanza ancora aperta |

@@ -32,6 +32,17 @@ void EKF::Init(const Vector3d& pos, const Vector3d& vel, const Eigen::Matrix3d& 
     m_P.block<3,3>(3,3) = velVar * Eigen::Matrix3d::Identity();
 }
 
+void EKF::UpdateVelocity(const Vector3d& v, const Eigen::Matrix3d& R) {
+    MatrixXd H = MatrixXd::Zero(3, 7);
+    H.block<3,3>(0,3) = Eigen::Matrix3d::Identity();
+    Vector3d y = v - m_state.segment<3>(3);
+    MatrixXd S = H * m_P * H.transpose() + R;
+    MatrixXd K = m_P * H.transpose() * S.inverse();
+    m_state += K * y;
+    MatrixXd IKH = MatrixXd::Identity(7, 7) - K * H;
+    m_P = IKH * m_P * IKH.transpose() + K * R * K.transpose();   // forma di Joseph
+}
+
 void EKF::Predict(double dt) {
     if (dt <= 0) return;
 

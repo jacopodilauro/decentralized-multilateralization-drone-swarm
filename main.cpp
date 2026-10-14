@@ -110,6 +110,13 @@ int main(int argc, char *argv[])
     cmd.AddValue("spoofTime",   "Attivazione dello spoofer [s] (negativo = attackTime)", spoofTime);
     cmd.AddValue("spoofOffset", "Posizione falsa: spostamento in y dal centro dello sciame [m]", spoofOffset);
     cmd.AddValue("spoofDrift",  "Posizione falsa: velocita' di trascinamento in y [m/s]", spoofDrift);
+    bool imuOn = true;
+    imu::Params imuP;
+    cmd.AddValue("imu",           "Sotto cattura: velocita' dai sensori di bordo (IMU/odometria/bussola) nei filtri", imuOn);
+    cmd.AddValue("imuVelNoise",   "Sensori di bordo: rumore bianco della velocita' [m/s]", imuP.velNoise);
+    cmd.AddValue("imuVelBias",    "Sensori di bordo: bias lento della velocita' [m/s] (tau 30 s)", imuP.velBias);
+    cmd.AddValue("imuScale",      "Sensori di bordo: errore di scala (relativo, 1 sigma)", imuP.scale);
+    cmd.AddValue("imuHeadingDeg", "Sensori di bordo: errore della bussola [gradi] (tau 120 s)", imuP.headingDeg);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -117,6 +124,7 @@ int main(int argc, char *argv[])
         std::cerr << "--sharePolicy deve essere nearest oppure oldest" << std::endl; return 1;
     }
     UwbSecurityApp::SetRangeSharing(shareK, sharePolicy == "oldest");
+    UwbSecurityApp::SetImu(imuOn, imuP);
     if (anchorModel == "fixed") UwbSecurityApp::SetAnchorModel(0);
     else if (anchorModel == "r") UwbSecurityApp::SetAnchorModel(1);
     else if (anchorModel == "consider") UwbSecurityApp::SetAnchorModel(2);
