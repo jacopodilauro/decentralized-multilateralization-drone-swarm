@@ -200,6 +200,17 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         Fatto (6.2): `metrics.py` calcola `errore_rel_*` (errore comune stimato ogni 0,1 s come mediana su
         tutti i mittenti di GPS - vero) ed `errore_ekf_*_p99_m`. Da fare: usarle nel viewer e nelle figure
 - [ ] **Fase 7 – Spoofer esterno** (posizione, attivazione, cattura dei droni)
+  - [x] 7.1 Modello fisico in `GnssModel.h` (`Spoofer`, `Receiver::SetSpoofer`): antenna a terra, satelliti
+        finti per una posizione falsa x_f (anche in movimento) e un offset di tempo beta; ritardo |p_i - s|
+        uguale su tutti i canali + multipath del collegamento (IPOTESI 0,5 m / 10 s). Nel `Fix`: `spoofed` e
+        `ppsErrorS` = bias stimato - bias vero = beta + (|p_i - s| + m_i)/c: il PPS scatta in ritardo della
+        distanza dallo spoofer, senza l'orologio del ricevitore. Test `test_gnss` [7]: tutti i droni vedono
+        la stessa x_f (scarto max 1,23 m), differenze di PPS = differenze di distanza (RMS 1,00 m), esatto
+        senza rumore. [8] informativo, spoofer a 500 m, 60 s di PPS, offset UWB ideali (mediana): raggio 10 m
+        -> azimut 0,7-2,3 gradi, distanza non determinabile; raggio 50 m -> 0,2-0,5 gradi, 47-156 m
+        (jitter PPS 0-20 ns). Simulatore invariato (nessuno spoofer)
+  - [ ] 7.2 Spoofer nel simulatore (opzioni, attivazione, cattura dei droni, CSV) al posto dell'attacco sul nodo 0
+  - [ ] Jitter del PPS e quantizzazione (qErr) da schede tecniche reali; offset UWB tra droni dai timestamp DS-TWR
 - [ ] **Fase 8 – Rilevamento dello spoofer esterno** con il consenso esistente
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
@@ -229,3 +240,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-05 | 6.2 (parziale) | chi-square gnss test (receiver mode) | Media calibrata; code dal multipath correlato delle ancore |
 | 2026-10-07 | 6.2a | rotate shared ranges | 3 seed, GPS semplice: base p95 0,77 -> 0,57 m, ospiti p95 1,13 -> 0,93 m, FA pre-attacco 0,034% -> 0%; post-attacco identico (<= 7 vicini). `nearest` = 4.3 byte per byte |
 | 2026-10-07 | 6.2 | model anchor gps uncertainty | Test chi-quadro calibrato su 3 seed (0,10% oltre il 99,9%); receiver, oldest e consider di default |
+| 2026-10-11 | 7.1 | add external gnss spoofer model | Tutti vedono la stessa posizione falsa; PPS = TDoA verso lo spoofer; simulatore identico al 6.2 |

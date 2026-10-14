@@ -10,6 +10,16 @@
 //   n_ij  rumore di codice: individuale, bianco
 //   b     clock bias del ricevitore (offset + deriva)
 // Il ricevitore risolve posizione e clock bias ai minimi quadrati (Gauss-Newton), come uno vero.
+//
+// Spoofer esterno (Fase 7): un'antenna a terra in s trasmette satelliti finti costruiti per una posizione
+// falsa x_f e un proprio offset di tempo beta. Il segnale percorre |p_i - s| prima di arrivare al drone i,
+// uguale su tutti i canali:
+//   rho_ij = |x_f - S_j| + c*beta + |p_i - s| + c*b_i + m_i(t) + n_ij
+//   m_i   multipath del collegamento spoofer -> drone i (uguale su tutti i canali, Gauss-Markov)
+// Ai minimi quadrati: posizione = x_f per TUTTI i droni (una sola antenna, Tippenhauer et al. CCS 2011) e
+// clock bias = b_i + beta + (|p_i - s| + m_i)/c. Il PPS scatta quando il ricevitore crede che inizi il secondo,
+// cioe' all'istante vero N + (bias stimato - bias vero): ppsErrorS = beta + (|p_i - s| + m_i)/c, senza
+// l'orologio del ricevitore. Le differenze tra droni sono misure TDoA verso lo spoofer.
 // Coordinate locali ENU in metri; i satelliti sono fermi (in 240 s la loro direzione cambia di ~0.1 gradi).
 
 #include <Eigen/Dense>
@@ -36,6 +46,20 @@ struct Params {
     double codeNoiseSigM  = 0.2;     // rumore di codice individuale (bianco, pseudodistanze filtrate)
     double clockOffsetMaxS = 1e-3;   // offset iniziale dell'orologio del ricevitore: uniforme +-1 ms
     double clockDriftPpm  = 0.5;     // deriva tipica di un TCXO: uniforme +-0.5 ppm
+    // Multipath del collegamento spoofer -> drone (IPOTESI: antenna a terra, riflessioni dal suolo)
+    double spoofMultipathSigM = 0.5;
+    double spoofMultipathTauS = 10.0;
+};
+
+// Spoofer GNSS esterno a singola antenna (vedi il modello in testa al file)
+struct Spoofer {
+    Eigen::Vector3d antenna  = Eigen::Vector3d::Zero();  // posizione dell'antenna (ENU) [m]
+    Eigen::Vector3d fakePos0 = Eigen::Vector3d::Zero();  // posizione falsa all'attivazione [m]
+    Eigen::Vector3d fakeVel  = Eigen::Vector3d::Zero();  // velocita' della posizione falsa [m/s]
+    double timeOffsetS = 0.0;                             // beta: offset del tempo trasmesso [s]
+    double startS      = 1e18;                            // attivazione: da qui i ricevitori sono catturati
+    Eigen::Vector3d FakePos(double t) const { return fakePos0 + fakeVel * (t - startS); }
+    bool Active(double t) const { return t >= startS; }
 };
 
 // Processo di Gauss-Markov del primo ordine aggiornato a intervalli arbitrari
@@ -96,6 +120,10 @@ struct Fix {
     // Covarianza piena (ENU) dell'errore individuale: sigma^2 * G. hAcc/vAcc ne perdono l'anisotropia
     // orizzontale e le correlazioni (con 9 satelliti l'errore in un asse puo' essere ~2 volte l'altro)
     Eigen::Matrix3d covInd = Eigen::Matrix3d::Zero();
+    // Errore temporale del PPS = bias stimato - bias vero [s]. Senza spoofing e' l'errore comune/c (pochi ns);
+    // con lo spoofer attivo vale beta + (|p - s| + multipath)/c
+    double          ppsErrorS = 0.0;
+    bool            spoofed = false;
 };
 
 class Receiver {
@@ -111,7 +139,11 @@ public:
             GaussMarkov g; g.sigma = p.multipathSigM; g.tau = p.multipathTauS;
             m_multipath.push_back(g);
         }
+        m_spoofMp.sigma = p.spoofMultipathSigM; m_spoofMp.tau = p.spoofMultipathTauS;   // nessuna estrazione qui
     }
+
+    // Spoofer che cattura questo ricevitore dall'istante spoofer->startS (nullptr = nessuno)
+    void SetSpoofer(std::shared_ptr<const Spoofer> s) { m_spoofer = std::move(s); }
 
     double TrueClockBias(double t) const { return m_clockOffset + m_clockDrift * t; }
 
@@ -121,6 +153,14 @@ public:
         std::normal_distribution<double> n(0.0, p.codeNoiseSigM);
         std::vector<double> rho;
         double b = TrueClockBias(t);
+        if (m_spoofer && m_spoofer->Active(t)) {
+            // Ricevitore catturato: solo satelliti finti, ritardati del percorso spoofer -> drone
+            Eigen::Vector3d xf = m_spoofer->FakePos(t);
+            double common = LIGHT_C * m_spoofer->timeOffsetS + (pTrue - m_spoofer->antenna).norm() + m_spoofMp.At(t, m_rng);
+            for (size_t j = 0; j < m_c->Sats().size(); j++)
+                rho.push_back((xf - m_c->Sats()[j]).norm() + common + LIGHT_C * b + n(m_rng));
+            return rho;
+        }
         for (size_t j = 0; j < m_c->Sats().size(); j++) {
             double geo = (pTrue - m_c->Sats()[j]).norm();
             rho.push_back(geo + LIGHT_C * b + m_c->CommonError((int)j, t) + m_multipath[j].At(t, m_rng) + n(m_rng));
@@ -174,6 +214,8 @@ public:
     Fix Measure(const Eigen::Vector3d& pTrue, double t) {
         Fix f = Solve(Pseudoranges(pTrue, t));
         f.trueClockBiasS = TrueClockBias(t);
+        f.ppsErrorS = f.clockBiasS - f.trueClockBiasS;
+        f.spoofed = m_spoofer && m_spoofer->Active(t);
         return f;
     }
 
@@ -184,6 +226,8 @@ private:
     std::vector<GaussMarkov> m_multipath;
     Eigen::Vector3d m_lastPos = Eigen::Vector3d::Zero();
     double m_lastBiasM = 0.0;
+    std::shared_ptr<const Spoofer> m_spoofer;
+    GaussMarkov m_spoofMp;
 };
 
 } // namespace gnss
