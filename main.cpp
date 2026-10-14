@@ -100,6 +100,16 @@ int main(int argc, char *argv[])
     std::string anchorModel = "consider";
     cmd.AddValue("anchorModel", "Incertezza GPS delle ancore (con --gnss=receiver): fixed | r | consider", anchorModel);
     cmd.AddValue("sharePolicy", "Scelta dei range condivisi: nearest (piu' vicini) | oldest (rotazione)", sharePolicy);
+    bool   spoof        = false;
+    double spoofDist    = 500.0, spoofAz = -37.0, spoofHeight = 2.0, spoofTime = -1.0;
+    double spoofOffset  = 15.0,  spoofDrift = 0.0;
+    cmd.AddValue("spoof",       "Spoofer GNSS esterno a singola antenna (richiede --gnss=receiver; sostituisce --targetsId)", spoof);
+    cmd.AddValue("spoofDist",   "Distanza orizzontale dell'antenna dal centro dello sciame [m]", spoofDist);
+    cmd.AddValue("spoofAz",     "Azimut dell'antenna dal centro dello sciame [gradi, 0 = est, 90 = nord]", spoofAz);
+    cmd.AddValue("spoofHeight", "Quota dell'antenna [m]", spoofHeight);
+    cmd.AddValue("spoofTime",   "Attivazione dello spoofer [s] (negativo = attackTime)", spoofTime);
+    cmd.AddValue("spoofOffset", "Posizione falsa: spostamento in y dal centro dello sciame [m]", spoofOffset);
+    cmd.AddValue("spoofDrift",  "Posizione falsa: velocita' di trascinamento in y [m/s]", spoofDrift);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -118,10 +128,25 @@ int main(int argc, char *argv[])
     RngSeedManager::SetRun(runId); 
 
     if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss deve essere receiver o simple" << std::endl; return 1; }
+    if (spoof && gnssMode != "receiver") { std::cerr << "--spoof richiede --gnss=receiver" << std::endl; return 1; }
     if (gnssMode == "receiver") {
         // Una sola costellazione per simulazione: e' lei a rendere comune l'errore atmosferico tra i droni
         uint64_t gseed = RngSeedManager::GetSeed() * 6364136223846793005ULL + RngSeedManager::GetRun() + 0x6E55ULL;
         UwbSecurityApp::SetGnssConstellation(std::make_shared<gnss::Constellation>(gnssP, gseed));
+        if (spoof) {
+            // Antenna a terra; posizione falsa = centro dello sciame (nodo 0) + offset, uguale per tutti
+            const Eigen::Vector3d center(100.0, 100.0, 50.0);
+            double az = spoofAz * M_PI / 180.0;
+            auto sp = std::make_shared<gnss::Spoofer>();
+            sp->antenna     = Eigen::Vector3d(center.x() + spoofDist * std::cos(az), center.y() + spoofDist * std::sin(az), spoofHeight);
+            sp->fakePos0    = center + Eigen::Vector3d(0.0, spoofOffset, 0.0);
+            sp->fakeVel     = Eigen::Vector3d(0.0, spoofDrift, 0.0);
+            sp->timeOffsetS = 1e-6;
+            sp->startS      = spoofTime >= 0.0 ? spoofTime : attackTime;
+            UwbSecurityApp::SetGnssSpoofer(sp, "gnss_log.csv");
+            std::cout << ">>> Spoofer esterno: antenna (" << sp->antenna.transpose() << ") attivo da t=" << sp->startS
+                      << " s; l'attacco interno (--targetsId) e' disattivato" << std::endl;
+        }
         UwbHeader::SetGnssAccMode(true);
         UwbSecurityApp::SetChi2Threshold(chi2Thr);
     }
@@ -219,6 +244,7 @@ int main(int argc, char *argv[])
         std::stringstream ss(targetsId);
         std::string item;
         while (std::getline(ss, item, ',')) maliciousIds.push_back(std::stoi(item));
+        if (spoof) maliciousIds.clear();   // con lo spoofer esterno nessun drone dello sciame mente
     }
 
     Simulator::Schedule(Seconds(attackTime), [&apps, maliciousIds, totalNodes]() {

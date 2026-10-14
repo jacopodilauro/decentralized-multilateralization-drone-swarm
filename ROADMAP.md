@@ -209,7 +209,17 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         senza rumore. [8] informativo, spoofer a 500 m, 60 s di PPS, offset UWB ideali (mediana): raggio 10 m
         -> azimut 0,7-2,3 gradi, distanza non determinabile; raggio 50 m -> 0,2-0,5 gradi, 47-156 m
         (jitter PPS 0-20 ns). Simulatore invariato (nessuno spoofer)
-  - [ ] 7.2 Spoofer nel simulatore (opzioni, attivazione, cattura dei droni, CSV) al posto dell'attacco sul nodo 0
+  - [x] 7.2 Spoofer nel simulatore: `--spoof=1` (richiede `--gnss=receiver`, disattiva `--targetsId`),
+        `--spoofDist/Az/Height` (antenna, default 500 m, -37 gradi, 2 m), `--spoofTime` (default `attackTime`),
+        `--spoofOffset/Drift` (posizione falsa = centro dello sciame + offset in y, trascinamento in m/s).
+        Log `gnss_log.csv` (un fix per riga: catturato, GPS, verita', errore PPS in m). Strumento
+        `tools/spoofer_view.py`: cattura, reazione del sistema, localizzazione dai PPS (geometria e
+        sincronizzazione IDEALI). Seed 1, spoofer a 500 m attivo a 100 s: 20/20 droni catturati in 0,1 s,
+        dispersione delle posizioni GPS 0,66 m (vere 13,4 m); sistema attuale: allarmi collettivi 0 -> 84,5%,
+        chi2 mediano 2,4 -> 162, pos_std 0,35 -> 2,37 m (segnala tutti: pensato per pochi bugiardi).
+        PPS 1 Hz senza jitter: direzione 0,2-0,6 gradi gia' dopo 5-10 s; distanza -246 m a 5 s, +42 m a 120 s
+        (apertura dello sciame 32 -> 88 m grazie al moto degli ospiti); jitter 20 ns: direzione stabile da ~20 s.
+        Senza `--spoof` il simulatore e' identico al 6.2
   - [ ] Jitter del PPS e quantizzazione (qErr) da schede tecniche reali; offset UWB tra droni dai timestamp DS-TWR
 - [ ] **Fase 8 – Rilevamento dello spoofer esterno** con il consenso esistente
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
@@ -241,3 +251,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-07 | 6.2a | rotate shared ranges | 3 seed, GPS semplice: base p95 0,77 -> 0,57 m, ospiti p95 1,13 -> 0,93 m, FA pre-attacco 0,034% -> 0%; post-attacco identico (<= 7 vicini). `nearest` = 4.3 byte per byte |
 | 2026-10-07 | 6.2 | model anchor gps uncertainty | Test chi-quadro calibrato su 3 seed (0,10% oltre il 99,9%); receiver, oldest e consider di default |
 | 2026-10-11 | 7.1 | add external gnss spoofer model | Tutti vedono la stessa posizione falsa; PPS = TDoA verso lo spoofer; simulatore identico al 6.2 |
+| 2026-10-14 | 7.2 | add external spoofer to the simulator | Cattura totale vista nel simulatore; prima localizzazione dai PPS (ideale) |

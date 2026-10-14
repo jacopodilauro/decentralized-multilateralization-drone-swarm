@@ -44,6 +44,9 @@ public:
     // GNSS: con una costellazione -> ricevitore simulato (pseudodistanze + minimi quadrati);
     //       con nullptr -> modello storico (posizione vera + rumore bianco)
     static void SetGnssConstellation(std::shared_ptr<gnss::Constellation> c);
+    // Spoofer GNSS esterno (Fase 7): cattura il ricevitore di ogni drone da spoofer->startS.
+    // Con logPath non vuoto ogni fix GPS viene scritto in un CSV (istante, nodo, catturato, GPS, verita', PPS)
+    static void SetGnssSpoofer(std::shared_ptr<const gnss::Spoofer> s, const std::string& logPath);
     // Soglia del test chi-quadro (3 gradi di liberta') usata con il ricevitore GNSS
     static void SetChi2Threshold(double t) { s_chi2Thr = t; }
     // Range condivisi per pacchetto: K e politica di scelta.
@@ -158,6 +161,8 @@ private:
     // --- DS-TWR ---
     static bool s_rangingDsTwr;
     static std::shared_ptr<gnss::Constellation> s_constellation;
+    static std::shared_ptr<const gnss::Spoofer> s_spoofer;
+    static std::ofstream s_gnssLog;
     static double s_chi2Thr;
     static uint32_t s_shareK;
     static bool     s_shareOldest;

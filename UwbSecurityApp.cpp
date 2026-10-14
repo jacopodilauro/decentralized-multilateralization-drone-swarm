@@ -21,6 +21,8 @@ NS_OBJECT_ENSURE_REGISTERED (UwbSecurityApp);
 uint32_t UwbSecurityApp::s_verbosity = 1;
 bool UwbSecurityApp::s_rangingDsTwr = false;
 std::shared_ptr<gnss::Constellation> UwbSecurityApp::s_constellation = nullptr;
+std::shared_ptr<const gnss::Spoofer> UwbSecurityApp::s_spoofer = nullptr;
+std::ofstream UwbSecurityApp::s_gnssLog;
 double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta', 99.9%
 // Stessi default di main.cpp (che li imposta comunque dalla riga di comando)
 uint32_t UwbSecurityApp::s_shareK = 10;
@@ -48,6 +50,14 @@ static void CovToArray(const Eigen::Matrix3d& m, double c[6]) {
     c[0] = m(0, 0); c[1] = m(1, 1); c[2] = m(2, 2); c[3] = m(0, 1); c[4] = m(0, 2); c[5] = m(1, 2);
 }
 void UwbSecurityApp::SetGnssConstellation(std::shared_ptr<gnss::Constellation> c) { s_constellation = std::move(c); }
+void UwbSecurityApp::SetGnssSpoofer(std::shared_ptr<const gnss::Spoofer> s, const std::string& logPath) {
+    s_spoofer = std::move(s);
+    if (!logPath.empty()) {
+        s_gnssLog.open(logPath);
+        s_gnssLog << "time,node,spoofed,gps_x,gps_y,gps_z,true_x,true_y,true_z,pps_err_m\n";
+        s_gnssLog << std::fixed << std::setprecision(4);
+    }
+}
 
 void UwbSecurityApp::SetRangingDsTwr(bool on) { s_rangingDsTwr = on; UwbHeader::SetDsTwrMode(on); }
 std::map<std::pair<char, uint32_t>, double> UwbSecurityApp::s_lastAnnounce;
@@ -109,6 +119,7 @@ m_rng.seed(seq);
 
     if (s_constellation) {
         m_gnss = std::make_unique<gnss::Receiver>(s_constellation, base ^ (0x9E3779B97F4A7C15ULL * (m_id + 1)) ^ 0x47AA55ULL);
+        if (s_spoofer) m_gnss->SetSpoofer(s_spoofer);
     }
 
     if (s_rangingDsTwr) {
@@ -813,6 +824,10 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
     if (m_gnss) {
         // Ricevitore GNSS simulato: errore comune (uguale per i droni vicini) + errore individuale
         gnss::Fix f = m_gnss->Measure(gps, Simulator::Now().GetSeconds());
+        if (s_gnssLog.is_open() && f.ok)
+            s_gnssLog << Simulator::Now().GetSeconds() << ',' << m_id << ',' << (f.spoofed ? 1 : 0) << ','
+                      << f.pos.x() << ',' << f.pos.y() << ',' << f.pos.z() << ','
+                      << gps.x() << ',' << gps.y() << ',' << gps.z() << ',' << f.ppsErrorS * gnss::LIGHT_C << '\n';
         if (f.ok) { gps = f.pos; m_lastGnssFix = f; }
     } else {
         std::normal_distribution<double> noise_xy(0.0, 0.2);
