@@ -25,6 +25,13 @@ void EKF::Init(const Vector3d& init_pos) {
     m_q_drift = 0.01;
 }
 
+void EKF::Init(const Vector3d& pos, const Vector3d& vel, const Eigen::Matrix3d& posCov, double velVar) {
+    Init(pos);
+    m_state.segment<3>(3) = vel;
+    m_P.block<3,3>(0,0) = posCov;
+    m_P.block<3,3>(3,3) = velVar * Eigen::Matrix3d::Identity();
+}
+
 void EKF::Predict(double dt) {
     if (dt <= 0) return;
 

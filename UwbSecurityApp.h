@@ -185,6 +185,24 @@ private:
     // aggiornamenti dei filtri con ancore GPS (8.2a: solo predizione; 8.2b: localizzazione relativa UWB)
     std::map<uint32_t, std::pair<bool, double>> m_peerCapture;   // (annuncio, istante)
     bool   m_captureConsensus = false;
+    // 8.2b: localizzazione solo relativa sotto cattura. Istantanee dei filtri prese ogni secondo SOLO senza alcun
+    // sospetto; al consenso si riparte dalla piu' vecchia (1-2 s prima dell'attacco). Ancore = mie stime degli
+    // altri droni (non i loro GPS falsi); un filtro su me stesso fa da ancora per le misure dirette
+    struct Snapshot {
+        double t = -1.0;
+        std::map<uint32_t, EKF> bank;
+        std::map<uint32_t, double> lastCalc;
+        Eigen::Vector3d myGps = Eigen::Vector3d::Zero(), myVel = Eigen::Vector3d::Zero();
+        Eigen::Matrix3d myCov = Eigen::Matrix3d::Identity();
+    };
+    Snapshot m_snapOld, m_snapNew;
+    bool   m_relMode = false;
+    EKF    m_selfEkf;
+    double m_selfTime = 0.0;
+    Eigen::Vector3d m_myLastGps = Eigen::Vector3d::Zero();
+    void   TakeSnapshot(double now);
+    void   EnterRelativeMode(double now);
+    Eigen::Vector3d SelfAt(double t, Eigen::Matrix3d* cov);   // mia posizione stimata all'istante t
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone

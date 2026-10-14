@@ -24,6 +24,29 @@ def _pct(num, den):
     return 100.0 * num / den if den else float("nan")
 
 
+def _shape_stats(rows):
+    """Errore di FORMA (8.2b): per ogni osservatore e secondo, stime degli altri droni allineate a quelle vere con la
+    miglior rototraslazione (Kabsch). Ritorna liste di (rms residuo [m], traslazione [m], rotazione [gradi])."""
+    import numpy as np
+    out = []
+    r = rows.assign(sec=rows.time.astype(int)).sort_values("time")
+    for (_, _), g in r.groupby(["observer_id", "sec"]):
+        g = g.drop_duplicates("sender_id", keep="last")
+        if len(g) < 4:
+            continue
+        E = g[["est_x", "est_y", "est_z"]].values
+        T = g[["true_x", "true_y", "true_z"]].values
+        ce, ct = E.mean(axis=0), T.mean(axis=0)
+        H = (E - ce).T @ (T - ct)
+        U, _, Vt = np.linalg.svd(H)
+        D = np.diag([1, 1, np.sign(np.linalg.det(Vt.T @ U.T))])
+        R = Vt.T @ D @ U.T
+        res = (R @ (E - ce).T).T + ct - T
+        ang = np.degrees(np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))
+        out.append((float(np.sqrt((res ** 2).sum(axis=1).mean())), float(np.linalg.norm(ct - ce)), float(ang)))
+    return out
+
+
 def compute(log_path, attack_time, targets, n_base):
     d = pd.read_csv(log_path)
     m = {"righe_log": int(len(d))}
@@ -142,6 +165,19 @@ def compute(log_path, attack_time, targets, n_base):
         m["consenso_cattura_post_attacco_pct"] = _pct(int(cpost.cons.sum()), len(cpost))
         firstc = sc[(sc.time >= attack_time) & (sc.cons == 1)].groupby("observer_id").time.min() - attack_time
         m["consenso_cattura_latenza_mediana_s"] = float(firstc.median()) if len(firstc) else None
+        # Forma dello sciame (8.2b): prima dell'attacco (riferimento) e sotto consenso di cattura
+        import numpy as np
+        for name, rows in (("pre", d[(d.time > 20) & (d.time < attack_time)]),
+                           ("cattura", d[(d.time >= attack_time + 5) & (d.capture_consensus == 1)])):
+            st_ = _shape_stats(rows)
+            if st_:
+                a_ = np.array(st_)
+                m[f"forma_rms_{name}_mediana_m"] = float(np.median(a_[:, 0]))
+                m[f"forma_rms_{name}_p95_m"] = float(np.percentile(a_[:, 0], 95))
+                if name == "cattura":
+                    m["deriva_traslazione_cattura_mediana_m"] = float(np.median(a_[:, 1]))
+                    m["deriva_rotazione_cattura_mediana_gradi"] = float(np.median(a_[:, 2]))
+                    m["pos_std_cattura_mediana_m"] = float(rows.pos_std.median())
     return m
 
 

@@ -245,8 +245,19 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         build normale e build con contrazione FMA ora danno metriche identiche (prima 83,3% contro 84,5%).
         Costo atteso: senza ancore i filtri solo predicono, pos_std mediana 225 m dopo la cattura.
         Senza spoofer: metriche identiche al 6.2, consenso 0%
-  - [ ] 8.2b Sotto cattura: localizzazione solo relativa con UWB (ancore = stime dei droni invece dei GPS falsi),
-        ripartendo dagli stati di prima della cattura
+  - [x] 8.2b Sotto cattura, localizzazione solo relativa con UWB. Istantanee dei filtri ogni secondo SOLO senza
+        alcun sospetto; al consenso si riparte dalla piu' vecchia (1-2 s prima dell'attacco). Ancore = mie stime degli
+        altri droni (con la loro covarianza) invece dei GPS falsi; un filtro su me stesso (dal mio ultimo GPS buono,
+        aggiornato con le distanze dirette) fa da ancora per le misure dirette. I droni che entrano durante la cattura
+        non vengono inizializzati (limite). Metrica di FORMA in `metrics.py`: stime allineate alla verita' con la
+        miglior rototraslazione (Kabsch), residuo RMS; a parte la deriva del riferimento (traslazione, rotazione).
+        Seed 1, spoofer a 100 s: forma mediana 0,22 m / p95 1,59 m (prima dell'attacco, con GPS: 0,54 / 0,94 m;
+        8.2a: 645 / 1.475 m); pos_std 0,18 m. MA il riferimento scivola: traslazione 340 m, rotazione 125 gradi
+        (mediane). Fisica: posizione e orientamento dell'insieme non sono osservabili da sole distanze; la velocita'
+        comune fa un random walk (~t^1,5). Senza spoofer: metriche identiche al 6.2
+  - [ ] 8.2c Ancorare il riferimento sotto cattura con i sensori di bordo indipendenti dal GPS (velocita' da IMU/
+        odometria visiva, direzione da bussola), da condividere nel pacchetto: serve per dare allo spoofer una
+        direzione nel mondo (Fase 9)
   - [x] Nota di metodo (7.2), risolta dall'8.2a: sotto cattura il sistema era caotico; tra macchine diverse le metriche dello
         scenario con spoofer differiscono (es. allarmi 83,3% contro 84,5%) per arrotondamenti di 1e-10 (verificato
         ricompilando con contrazione FMA). Confronti tra macchine: con tolleranza e su piu' seed
@@ -282,3 +293,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 7.2 | add external spoofer to the simulator | Cattura totale vista nel simulatore; prima localizzazione dai PPS (ideale) |
 | 2026-10-14 | 8.1 | detect swarm capture | 3 seed: 20/20 in 0,95 s sotto spoofer, 0% false catture con il nodo 0 bugiardo |
 | 2026-10-14 | 8.2a | capture consensus, stop gps anchors | Consenso 20/20 in 1,05 s; niente piu' caos (build diverse identiche) |
+| 2026-10-14 | 8.2b | relative uwb localization under capture | Forma 0,22 m sotto cattura (8.2a: 645 m); il riferimento scivola (340 m, 125 gradi) |

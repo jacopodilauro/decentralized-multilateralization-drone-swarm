@@ -34,6 +34,8 @@ public:
     static double GetDefaultQAcc() { return s_defaultQAcc; }
 
     void Init(const Eigen::Vector3d& init_pos);
+    // Inizializzazione con posizione e velocita' note e la loro incertezza (8.2b: filtro su me stesso)
+    void Init(const Eigen::Vector3d& pos, const Eigen::Vector3d& vel, const Eigen::Matrix3d& posCov, double velVar);
     void Predict(double dt);
     void Update(const std::vector<Msmnt>& measurements);
     double GetClockBias() const { return m_state(6); }

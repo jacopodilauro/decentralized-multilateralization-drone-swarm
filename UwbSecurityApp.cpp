@@ -209,6 +209,13 @@ void UwbSecurityApp::SendUwbMessage() {
     }
 
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
+    {   // mio GPS e sua storia breve: per l'istantanea dell'8.2b (nessuna estrazione casuale in piu')
+        double tNow = Simulator::Now().GetSeconds();
+        m_myLastGps = myGps;
+        auto& h = m_gpsHistory[m_id];
+        h.emplace_back(tNow, myGps);
+        while (h.size() > 1 && tNow - h.front().first > 1.5) h.pop_front();
+    }
     double localTime = now + m_clockOffset;
 
     // 1. PRIMA dichiariamo l'oggetto header e i dati base
@@ -616,6 +623,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     }
 
     if (m_ekfBank.find(senderId) == m_ekfBank.end()) {
+        if (m_relMode) return;   // sotto cattura non c'e' un GPS buono da cui partire (limite dell'8.2b)
         m_ekfBank[senderId].Init(claimedGps);
         m_lastCalcTime[senderId]  = currentTime;
         m_ekfInitTime[senderId]   = currentTime;
@@ -649,6 +657,10 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         myData.is_los       = directLos;
         if (m_gnss && s_anchorModel > 0) {   // l'ancora sono io: la mia accuratezza GPS
             myData.anchor_cov = m_lastGnssFix.covInd;
+            myData.uwb_var    = DsTwrVar(directLos);
+        }
+        if (m_relMode) {   // sotto cattura: la mia posizione stimata al messaggio centrale, non il mio GPS
+            myData.anchor_pos = SelfAt(directTime, &myData.anchor_cov);
             myData.uwb_var    = DsTwrVar(directLos);
         }
         inputData.push_back(myData);
@@ -700,14 +712,37 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             peerData.uwb_var = DsTwrVar(peerData.is_los);
             if (m_lastKnownGpsCov.count(k)) peerData.anchor_cov = m_lastKnownGpsCov[k];
         }
+        if (m_relMode) {   // sotto cattura: ancora = mia stima di k all'istante della misura (non il suo GPS)
+            auto ek = m_ekfBank.find(k);
+            if (ek == m_ekfBank.end()) continue;
+            peerData.anchor_pos = ek->second.GetPosition() + ek->second.GetVelocity() * (tMeas - m_lastCalcTime[k]);
+            peerData.anchor_cov = ek->second.GetPositionCovariance();
+            peerData.uwb_var    = DsTwrVar(peerData.is_los);
+        }
         inputData.push_back(peerData);
     }
 
     // Sotto cattura le ancore GPS sono false: nessun aggiornamento con esse (8.2a: il filtro solo predice)
-    if ((int)inputData.size() >= 4 && !m_captureConsensus) {
+    // Sotto cattura senza istantanea (8.2a) le ancore GPS sono false: il filtro solo predice
+    if ((int)inputData.size() >= 4 && (!m_captureConsensus || m_relMode)) {
         m_ekfBank[senderId].Update(inputData);
     }
     m_lastCalcTime[senderId] = currentTime;
+
+    // 8.2b: aggiorno anche me stesso con la distanza diretta, ancora = stima del mittente al messaggio centrale
+    if (m_relMode && haveDirect && s_rangingDsTwr) {
+        SelfAt(currentTime, nullptr);   // porta il mio filtro a "adesso"
+        EKF::Msmnt me;
+        me.anchor_pos = m_ekfBank[senderId].GetPosition() + m_ekfBank[senderId].GetVelocity() * (directTime - currentTime);
+        me.anchor_cov = m_ekfBank[senderId].GetPositionCovariance();
+        me.range      = myMeasuredRange;
+        me.delay      = std::max(0.0, currentTime - directTime);
+        me.is_direct  = true;
+        me.clock_bias = false;
+        me.is_los     = directLos;
+        me.uwb_var    = DsTwrVar(directLos);
+        m_selfEkf.Update({ me });
+    }
 
     double mahal  = m_ekfBank[senderId].GetMahalanobisDistance();
     double posStd = m_ekfBank[senderId].GetPositionStdDev();
@@ -825,6 +860,43 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     }
 }
 
+void UwbSecurityApp::TakeSnapshot(double now) {
+    m_snapOld = m_snapNew;
+    m_snapNew.t        = now;
+    m_snapNew.bank     = m_ekfBank;
+    m_snapNew.lastCalc = m_lastCalcTime;
+    m_snapNew.myGps    = m_myLastGps;
+    m_snapNew.myVel    = ClaimedVelocity(m_id);
+    m_snapNew.myCov    = m_gnss ? m_lastGnssFix.covInd : Eigen::Matrix3d(Eigen::Vector3d(0.04, 0.04, 0.16).asDiagonal());
+}
+
+void UwbSecurityApp::EnterRelativeMode(double now) {
+    const Snapshot& sn = (m_snapOld.t >= 0.0) ? m_snapOld : m_snapNew;
+    if (sn.t < 0.0) return;   // nessuna istantanea pulita: resto in sola predizione (8.2a)
+    // Filtri degli altri droni: ripartono dall'istantanea; quelli nati dopo (inizializzati con GPS forse falsi)
+    // vengono scartati
+    for (auto it = m_ekfBank.begin(); it != m_ekfBank.end();) {
+        auto s = sn.bank.find(it->first);
+        if (s == sn.bank.end()) { it = m_ekfBank.erase(it); continue; }
+        it->second = s->second;
+        m_lastCalcTime[it->first] = sn.lastCalc.count(it->first) ? sn.lastCalc.at(it->first) : sn.t;
+        ++it;
+    }
+    m_selfEkf.Init(sn.myGps, sn.myVel, sn.myCov, 1.0);   // velocita' dai GPS su ~1 s: 1 m/s di incertezza
+    m_selfTime = sn.t;
+    m_relMode = true;
+    if (s_verbosity >= 1)
+        std::cout << ">>> t=" << now << " s drone " << m_id << ": localizzazione RELATIVA (UWB) dall'istantanea di t="
+                  << sn.t << " s" << std::endl;
+}
+
+Eigen::Vector3d UwbSecurityApp::SelfAt(double t, Eigen::Matrix3d* cov) {
+    double now = Simulator::Now().GetSeconds();
+    if (now > m_selfTime) { m_selfEkf.Predict(now - m_selfTime); m_selfTime = now; }
+    if (cov) *cov = m_selfEkf.GetPositionCovariance();
+    return m_selfEkf.GetPosition() + m_selfEkf.GetVelocity() * (t - now);
+}
+
 Eigen::Vector3d UwbSecurityApp::ClaimedVelocity(uint32_t id) const {
     // Velocita' dai GPS dichiarati su ~1 s: l'errore GPS individuale e' lento (multipath ~10 s) e si cancella
     auto it = m_gpsHistory.find(id);
@@ -899,6 +971,10 @@ void UwbSecurityApp::EvaluateSwarmCapture() {
     uint32_t thr = std::max(2u, (active * 2u + 2u) / 3u);
     bool beforeC = m_captureConsensus;
     m_captureConsensus = votes >= thr;
+    if (!m_captureConsensus && !m_swarmCaptured && m_captureCount <= 0 && now - m_snapNew.t >= 1.0)
+        TakeSnapshot(now);
+    if (m_captureConsensus && !beforeC) EnterRelativeMode(now);
+    if (!m_captureConsensus) m_relMode = false;
     if (s_verbosity >= 1 && beforeC != m_captureConsensus)
         std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_captureConsensus ? "CONSENSO: sciame catturato" : "consenso sulla cattura terminato")
                   << " (" << votes << "/" << active << ", soglia " << thr << ")" << std::endl;
