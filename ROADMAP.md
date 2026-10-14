@@ -337,3 +337,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 8.2c | anchor the frame with onboard sensors | Deriva 340 m -> 4,7 m; direzione reale dello spoofer 0,6-1,6 gradi; distanza ancora aperta |
 | 2026-10-14 | 9.1 | real pps synchronization over uwb clocks | Senza ipotesi ideali sulla misura: direzione 0,1-0,5 gradi |
 | 2026-10-14 | strada A | add formation scale for the aperture study | Distanza misurabile quando la curvatura supera l'errore di forma (seed 1) |
+| 2026-10-15 | strada A | fix sweep error handling | La campagna segnava "fatto" anche con simulazioni fallite (build vecchia): ora controllo iniziale, ERRORE per run, riepilogo |
