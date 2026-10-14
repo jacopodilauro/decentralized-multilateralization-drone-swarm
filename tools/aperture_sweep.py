@@ -14,7 +14,7 @@ Per ogni run (con --spoof=1) calcola:
   - per ogni osservatore base (ID < 8): stima dello spoofer con tutte le differenze di PPS dal consenso alla
     fine, in due varianti: REALE (geometria stimata + PPS e orologi UWB reali) e IDEALE (posizioni vere +
     PPS ideali). Errori di direzione (azimut) e di distanza; "determinata" se |errore di distanza| < 50% della
-    distanza vera.
+    distanza vera; "fusione" = mediana delle direzioni dei droni base (stima dello sciame).
 Regola fisica attesa: la distanza e' osservabile quando la curvatura (~ (a/2)^2 / 2R) supera l'errore di forma.
 """
 import argparse, os, re, sys
@@ -100,7 +100,7 @@ def analyse_one(rundir):
         c = T[ep > ep.max() - 5].mean(axis=0)
         for name, P, dd in (("reale", E, m.d_meas_m.values), ("ideale", T, m.d_ideal_m.values)):
             az, el, dr = errors(solve_tdoa_epochs(P, dd, ep), c, s_true)
-            per[name].append((abs(az), abs(dr)))
+            per[name].append((abs(az), abs(dr), az))
     for name, v in per.items():
         if v:
             a = np.array(v)
@@ -110,12 +110,15 @@ def analyse_one(rundir):
             res[f"{name}_azimut_max_gradi"] = float(np.max(a[:, 0]))
             res[f"{name}_distanza_mediana_m"] = float(np.median(a[:, 1]))
             res[f"{name}_distanza_determinata_pct"] = float(100 * np.mean(a[:, 1] < 0.5 * R))
+            # fusione: lo sciame prende la mediana delle direzioni dei droni base (errori con segno)
+            res[f"{name}_azimut_fusione_gradi"] = float(abs(np.median(a[:, 2])))
     return res
 
 
 def plot(csv, png):
     r = pd.read_csv(csv)
     cols = ["S", "R_m", "apertura_m", "curvatura_m", "forma_m", "reale_azimut_mediano_gradi", "reale_azimut_max_gradi",
+            "reale_azimut_fusione_gradi",
             "reale_distanza_mediana_m", "reale_distanza_determinata_pct", "ideale_distanza_mediana_m"]
     r = r.assign(R_m=(r.R_m / 50).round() * 50)   # distanze nominali (il centro pre-cattura varia di pochi m)
     cols = [c for c in cols if c in r.columns]

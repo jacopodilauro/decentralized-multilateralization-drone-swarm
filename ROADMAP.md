@@ -300,7 +300,12 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         8 osservatori: 0,4-1,7 gradi; a S = 1 da 0,31 a 4,55 gradi a seconda dell'osservatore (i valori 0,15-0,54
         riportati prima erano dei soli osservatori 1 e 5)
   - [ ] Campagna completa sul PC di Jacopo: S 1-4 x R 250/500/1000 x >= 5 seed
-  - [ ] Perche' alcuni osservatori stimano peggio la direzione (0, 2, 3, 6) e fusione delle stime degli osservatori
+  - [x] Direzione, tre metodi a confronto (`tools/direction_methods.py`, S = 1, R = 500 m, 5 seed, tutto reale): singolo
+        drone (cumulativo) 1,47 gradi in mediana, peggiore 14,7; per secondo (onda piana) 2,99 -> SCARTATO; **fusione =
+        mediana delle direzioni degli 8 droni base: 0,34 gradi in mediana sui seed** (-0,34 / -0,01 / -5,81 / -1,83 /
+        +0,20). La fusione elimina i droni anomali ma non l'errore di orientamento COMUNE a tutto lo sciame (seed 3,
+        in parte 4): il limite finale e' l'orientamento dello sciame (bussola, GPS prima dell'attacco).
+        Nuova colonna `reale_azimut_fusione_gradi` in `aperture_sweep.py`
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -338,3 +343,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 9.1 | real pps synchronization over uwb clocks | Senza ipotesi ideali sulla misura: direzione 0,1-0,5 gradi |
 | 2026-10-14 | strada A | add formation scale for the aperture study | Distanza misurabile quando la curvatura supera l'errore di forma (seed 1) |
 | 2026-10-15 | strada A | fix sweep error handling | La campagna segnava "fatto" anche con simulazioni fallite (build vecchia): ora controllo iniziale, ERRORE per run, riepilogo |
+| 2026-10-15 | strada A | add swarm direction fusion | Fusione tra droni: direzione 0,34 gradi (mediana su 5 seed); limite residuo = orientamento comune |
