@@ -58,7 +58,7 @@ void UwbHeader::Serialize (Buffer::Iterator start) const {
     std::memcpy(&x_bytes, &m_gpsX, 8); std::memcpy(&y_bytes, &m_gpsY, 8); std::memcpy(&z_bytes, &m_gpsZ, 8);
     start.WriteU64 (x_bytes); start.WriteU64 (y_bytes); start.WriteU64 (z_bytes);
     
-    start.WriteU8 (m_imLeaving ? 1 : 0);
+    start.WriteU8 ((m_imLeaving ? 1 : 0) | (m_swarmCapture ? 2 : 0));   // bit 0 leave, bit 1 cattura
     
     // Scriviamo Gossip
     start.WriteU8(m_gossipLeaves.size());
@@ -118,7 +118,9 @@ uint32_t UwbHeader::Deserialize (Buffer::Iterator start) {
     uint64_t x_bytes = start.ReadU64 (), y_bytes = start.ReadU64 (), z_bytes = start.ReadU64 ();
     std::memcpy(&m_gpsX, &x_bytes, 8); std::memcpy(&m_gpsY, &y_bytes, 8); std::memcpy(&m_gpsZ, &z_bytes, 8);
     
-    m_imLeaving = (start.ReadU8 () != 0);
+    uint8_t flags = start.ReadU8 ();
+    m_imLeaving    = (flags & 1) != 0;
+    m_swarmCapture = (flags & 2) != 0;
     
     uint8_t gossipSize = start.ReadU8();
     m_gossipLeaves.clear();

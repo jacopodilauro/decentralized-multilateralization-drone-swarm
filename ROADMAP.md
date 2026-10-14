@@ -236,9 +236,18 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         Errore di progetto trovato e corretto: la prima versione usava la velocita' degli EKF, che sotto cattura
         divergono (30-80 m/s) e rendevano "coerenti" a caso il 25-33% delle coppie. Principio: il test di
         cattura non deve dipendere da stati stimati con le ancore GPS
-  - [ ] 8.2 Sotto cattura: smettere di usare il GPS come ancora, localizzazione solo relativa (UWB), consenso
-        sulla cattura (bit nel pacchetto)
-  - [ ] Nota di metodo (7.2): sotto cattura il sistema attuale e' caotico; tra macchine diverse le metriche dello
+  - [x] 8.2a Consenso sulla cattura: ogni drone annuncia il proprio stato (bit 1 del byte di imLeaving, 0 byte in
+        piu'); sciame catturato se almeno 2/3 dei droni attivi (me compreso, annunci <= 1 s) lo annunciano. Sotto
+        consenso: niente caccia al bugiardo (nessun sospetto) e nessun aggiornamento dei filtri con ancore GPS
+        (solo predizione). Colonna `capture_consensus`, metriche `consenso_cattura_*`.
+        Seed 1, spoofer a 100 s: consenso di 20/20 droni in 1,05 s, 100% del tempo, mai interrotto; allarmi
+        "bugiardo" sugli onesti 83% -> 1,4% (transitorio prima del consenso). Il comportamento caotico sparisce:
+        build normale e build con contrazione FMA ora danno metriche identiche (prima 83,3% contro 84,5%).
+        Costo atteso: senza ancore i filtri solo predicono, pos_std mediana 225 m dopo la cattura.
+        Senza spoofer: metriche identiche al 6.2, consenso 0%
+  - [ ] 8.2b Sotto cattura: localizzazione solo relativa con UWB (ancore = stime dei droni invece dei GPS falsi),
+        ripartendo dagli stati di prima della cattura
+  - [x] Nota di metodo (7.2), risolta dall'8.2a: sotto cattura il sistema era caotico; tra macchine diverse le metriche dello
         scenario con spoofer differiscono (es. allarmi 83,3% contro 84,5%) per arrotondamenti di 1e-10 (verificato
         ricompilando con contrazione FMA). Confronti tra macchine: con tolleranza e su piu' seed
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
@@ -272,3 +281,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-11 | 7.1 | add external gnss spoofer model | Tutti vedono la stessa posizione falsa; PPS = TDoA verso lo spoofer; simulatore identico al 6.2 |
 | 2026-10-14 | 7.2 | add external spoofer to the simulator | Cattura totale vista nel simulatore; prima localizzazione dai PPS (ideale) |
 | 2026-10-14 | 8.1 | detect swarm capture | 3 seed: 20/20 in 0,95 s sotto spoofer, 0% false catture con il nodo 0 bugiardo |
+| 2026-10-14 | 8.2a | capture consensus, stop gps anchors | Consenso 20/20 in 1,05 s; niente piu' caos (build diverse identiche) |

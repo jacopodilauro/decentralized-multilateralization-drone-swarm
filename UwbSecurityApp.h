@@ -180,6 +180,11 @@ private:
     Eigen::Vector3d ClaimedVelocity(uint32_t id) const;
     int    m_captureCount  = 0;      // frame consecutivi sospetti (> 0) o non sospetti (< 0)
     bool   m_swarmCaptured = false;
+    // Consenso sulla cattura: ogni drone annuncia il proprio stato nel pacchetto; lo sciame e' catturato se almeno
+    // 2/3 dei droni attivi (me compreso) lo annunciano. Sotto consenso: niente caccia al bugiardo e niente
+    // aggiornamenti dei filtri con ancore GPS (8.2a: solo predizione; 8.2b: localizzazione relativa UWB)
+    std::map<uint32_t, std::pair<bool, double>> m_peerCapture;   // (annuncio, istante)
+    bool   m_captureConsensus = false;
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone

@@ -28,6 +28,9 @@ namespace ns3 {
         void SetTxTimestampPs (uint64_t timestamp_ps);
         void SetGpsPosition (double x, double y, double z);
         void SetImLeaving (bool leaving);
+        // Il mittente ritiene lo sciame catturato da uno spoofer esterno (Fase 8): bit 1 del byte di imLeaving
+        void SetSwarmCapture(bool c) { m_swarmCapture = c; }
+        bool GetSwarmCapture() const { return m_swarmCapture; }
 
         // age = secondi trascorsi tra la misura del range e la trasmissione del pacchetto
         // los: la misura era in vista diretta (bit alto del campo range, nessun byte in piu')
@@ -90,6 +93,7 @@ namespace ns3 {
         double m_gpsY;
         double m_gpsZ;
         bool m_imLeaving;
+        bool m_swarmCapture = false;
 
         // Range condivisi: solo quelli effettivamente misurati (ID bersaglio -> range [m], eta' [s]).
         // Sul pacchetto: 1 byte = numero di range, poi per ognuno 2 byte ID + 4 byte range in mm

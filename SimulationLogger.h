@@ -26,7 +26,8 @@ public:
         double posStd,          // deviazione standard di posizione stimata dall'EKF
         double gpsChi2,         // statistica del test chi-quadro (stima contro GPS dichiarato)
         double pairsOkFrac,     // frazione di coppie coerenti GPS/UWB vista dall'osservatore (Fase 8)
-        bool swarmCapture       // l'osservatore ritiene lo sciame catturato da uno spoofer esterno
+        bool swarmCapture,      // l'osservatore ritiene lo sciame catturato da uno spoofer esterno
+        bool captureConsensus   // consenso (2/3 dei droni attivi) sulla cattura
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -40,7 +41,7 @@ public:
             << totalVotes << "," << threshold << "," 
             << activeNodes << "," << peerVotes << ","
             << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "," << gpsChi2
-            << "," << pairsOkFrac << "," << swarmCapture << "\n";
+            << "," << pairsOkFrac << "," << swarmCapture << "," << captureConsensus << "\n";
     }
 };
 

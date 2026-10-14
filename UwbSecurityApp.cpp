@@ -218,6 +218,7 @@ void UwbSecurityApp::SendUwbMessage() {
     header.SetGpsPosition(myGps.x(), myGps.y(), myGps.z());
     if (m_gnss) { double c[6]; CovToArray(m_lastGnssFix.covInd, c); header.SetGpsCov(c); }
     header.SetImLeaving(m_imLeaving);
+    header.SetSwarmCapture(m_swarmCaptured);
 
     if (s_rangingDsTwr) {
         // Timestamp UWB di trasmissione + istanti in cui ho ricevuto l'ultimo pacchetto di ciascun vicino
@@ -475,6 +476,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         }
 
         // --- 3. LOGICA DI EKF E ALARMS ---
+        m_peerCapture[senderId] = { header.GetSwarmCapture(), Simulator::Now().GetSeconds() };
         std::vector<uint8_t> rxAlarms = header.GetAlarmsList();
         
         for (uint32_t j = 0; j < m_swarmSize; ++j) {
@@ -701,7 +703,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         inputData.push_back(peerData);
     }
 
-    if ((int)inputData.size() >= 4) {
+    // Sotto cattura le ancore GPS sono false: nessun aggiornamento con esse (8.2a: il filtro solo predice)
+    if ((int)inputData.size() >= 4 && !m_captureConsensus) {
         m_ekfBank[senderId].Update(inputData);
     }
     m_lastCalcTime[senderId] = currentTime;
@@ -741,6 +744,8 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         suspiciousNow = false;
 
     if (currentTime < 15.0) suspiciousNow = false;
+    // Sotto cattura dello sciame tutti i GPS sono falsi: cercare "il bugiardo" non ha senso
+    if (m_captureConsensus) suspiciousNow = false;
 
     if (suspiciousNow) {
         m_alarmCounter[senderId]++;
@@ -801,7 +806,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
             currentActiveNodes, peerVoteCount,
-            myVote, suspiciousNow, mahal, posStd, gpsChi2, m_pairsOkFrac, m_swarmCaptured);
+            myVote, suspiciousNow, mahal, posStd, gpsChi2, m_pairsOkFrac, m_swarmCaptured, m_captureConsensus);
 
         // Stampa solo quando cambia il voto individuale o l'allarme collettivo di questo osservatore
         uint32_t voteState = myVote * 2u + (collectiveAlarm ? 1u : 0u);
@@ -874,17 +879,29 @@ void UwbSecurityApp::EvaluateSwarmCapture() {
             if (std::fabs(dist - r) <= K_SIGMA * std::sqrt(var)) nOk++;
         }
     }
-    if (nPairs < MIN_PAIRS) return;   // troppo poche coppie: stato invariato
-    m_pairsOkFrac = double(nOk) / nPairs;
-    bool suspect = m_pairsOkFrac < MIN_OK_FRAC;
-    if (suspect) m_captureCount = std::max(1, m_captureCount + 1);
-    else         m_captureCount = std::min(-1, m_captureCount - 1);
-    bool before = m_swarmCaptured;
-    if (m_captureCount >= HYSTERESIS)  m_swarmCaptured = true;
-    if (m_captureCount <= -HYSTERESIS) m_swarmCaptured = false;
-    if (s_verbosity >= 1 && before != m_swarmCaptured)
-        std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_swarmCaptured ? "CATTURA DELLO SCIAME rilevata" : "fine della cattura")
-                  << " (coppie coerenti " << nOk << "/" << nPairs << ")" << std::endl;
+    if (nPairs >= MIN_PAIRS) {   // con troppo poche coppie lo stato locale resta invariato
+        m_pairsOkFrac = double(nOk) / nPairs;
+        bool suspect = m_pairsOkFrac < MIN_OK_FRAC;
+        if (suspect) m_captureCount = std::max(1, m_captureCount + 1);
+        else         m_captureCount = std::min(-1, m_captureCount - 1);
+        bool before = m_swarmCaptured;
+        if (m_captureCount >= HYSTERESIS)  m_swarmCaptured = true;
+        if (m_captureCount <= -HYSTERESIS) m_swarmCaptured = false;
+        if (s_verbosity >= 1 && before != m_swarmCaptured)
+            std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_swarmCaptured ? "CATTURA DELLO SCIAME rilevata" : "fine della cattura")
+                      << " (coppie coerenti " << nOk << "/" << nPairs << ")" << std::endl;
+    }
+
+    // Consenso: annunci freschi (<= 1 s) dei droni attivi + il mio stato, quorum 2/3 (come i voti)
+    uint32_t active = 1, votes = m_swarmCaptured ? 1u : 0u;
+    for (const auto& [id, st] : m_peerCapture)
+        if (id != m_id && now - st.second <= 1.0) { active++; if (st.first) votes++; }
+    uint32_t thr = std::max(2u, (active * 2u + 2u) / 3u);
+    bool beforeC = m_captureConsensus;
+    m_captureConsensus = votes >= thr;
+    if (s_verbosity >= 1 && beforeC != m_captureConsensus)
+        std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_captureConsensus ? "CONSENSO: sciame catturato" : "consenso sulla cattura terminato")
+                  << " (" << votes << "/" << active << ", soglia " << thr << ")" << std::endl;
 }
 
 Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {

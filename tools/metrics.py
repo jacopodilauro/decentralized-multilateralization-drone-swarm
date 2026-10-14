@@ -133,6 +133,15 @@ def compute(log_path, attack_time, targets, n_base):
         m["cattura_osservatori_che_rilevano"] = int(len(first))
         m["cattura_osservatori_attivi"] = int(n_obs)
         m["cattura_latenza_mediana_s"] = float(first.median()) if len(first) else None
+    if "capture_consensus" in d.columns:
+        sc = d.assign(tb=(d.time * 10).round()).groupby(["observer_id", "tb"]).agg(
+            time=("time", "first"), cons=("capture_consensus", "max")).reset_index()
+        cpre = sc[(sc.time > 20) & (sc.time < attack_time)]
+        cpost = sc[sc.time >= attack_time + 5]
+        m["consenso_cattura_pre_attacco_pct"] = _pct(int(cpre.cons.sum()), len(cpre))
+        m["consenso_cattura_post_attacco_pct"] = _pct(int(cpost.cons.sum()), len(cpost))
+        firstc = sc[(sc.time >= attack_time) & (sc.cons == 1)].groupby("observer_id").time.min() - attack_time
+        m["consenso_cattura_latenza_mediana_s"] = float(firstc.median()) if len(firstc) else None
     return m
 
 

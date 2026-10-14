@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
                    "est_x,est_y,est_z,claim_x,claim_y,claim_z,"
                    "true_x,true_y,true_z,discrepancy,estimation_error,alarm,"
                    "rec_x,rec_y,rec_z,total_votes,threshold,active_nodes,peer_votes,"
-                   "my_vote,suspicious_now,mahal,pos_std,gps_chi2,pairs_ok_frac,swarm_capture\n";
+                   "my_vote,suspicious_now,mahal,pos_std,gps_chi2,pairs_ok_frac,swarm_capture,capture_consensus\n";
     }
 
     std::ofstream gtFile("ground_truth.csv");
