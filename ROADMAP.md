@@ -262,6 +262,15 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         scenario con spoofer differiscono (es. allarmi 83,3% contro 84,5%) per arrotondamenti di 1e-10 (verificato
         ricompilando con contrazione FMA). Confronti tra macchine: con tolleranza e su piu' seed
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
+  - [x] 9.0 Analisi dei log (`tools/spoofer_locate.py`): PPS a 1 Hz + geometria STIMATA dallo sciame (8.2b) di un
+        osservatore; sincronizzazione ideale. Seed 1, spoofer a 500 m, osservatore 1, dopo 20 s (mediane):
+        geometria ideale 0,18 gradi / 103 m; geometria stimata senza 8.2c 18,5 gradi / 1.857 m (inutilizzabile);
+        geometria stimata con 8.2c ideale (riferimento riportato nel mondo ogni secondo, forma intatta) 0,88 gradi /
+        129 m. Diagnosi: il riferimento stimato ruota di ~3-5 gradi/s (picchi 60-90 gradi/s); la forma dei base e'
+        buona (errore per drone 0,16-0,21 m mediana, p95 0,44-0,60 m); gli ospiti molto peggio (osservatore 12:
+        5 m / 25 m). Conclusione: l'8.2c e' indispensabile per la Fase 9
+  - [ ] 9.1 Sincronizzazione reale: PPS marcato con l'orologio UWB e offset tra orologi dai timestamp DS-TWR
+  - [ ] 9.2 Localizzazione nel simulatore (online), EKF sulla posizione dello spoofer
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -294,3 +303,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 8.1 | detect swarm capture | 3 seed: 20/20 in 0,95 s sotto spoofer, 0% false catture con il nodo 0 bugiardo |
 | 2026-10-14 | 8.2a | capture consensus, stop gps anchors | Consenso 20/20 in 1,05 s; niente piu' caos (build diverse identiche) |
 | 2026-10-14 | 8.2b | relative uwb localization under capture | Forma 0,22 m sotto cattura (8.2a: 645 m); il riferimento scivola (340 m, 125 gradi) |
+| 2026-10-14 | 9.0 | add spoofer localization from swarm geometry | Con la geometria dello sciame: 18,5 gradi senza 8.2c, 0,88 gradi con 8.2c ideale |
