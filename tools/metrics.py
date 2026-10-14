@@ -116,6 +116,23 @@ def compute(log_path, attack_time, targets, n_base):
     if "gps_chi2" in w.columns and len(w):
         m["chi2_media_pre"] = float(w.gps_chi2.mean())
         m["chi2_oltre_999_pre_pct"] = _pct(int((w.gps_chi2 > 16.27).sum()), len(w))
+
+    # 6) Dalla Fase 8: cattura dello sciame (spoofer esterno). Lo stato e' dell'osservatore: una riga per
+    #    osservatore e decimo di secondo. Senza spoofer deve restare 0 anche con un drone che mente (nodo 0)
+    if "swarm_capture" in d.columns:
+        st = d.assign(tb=(d.time * 10).round()).groupby(["observer_id", "tb"]).agg(
+            time=("time", "first"), cap=("swarm_capture", "max"), ok=("pairs_ok_frac", "first")).reset_index()
+        spre = st[(st.time > 20) & (st.time < attack_time)]
+        spost = st[st.time >= attack_time + 5]
+        m["cattura_pre_attacco_pct"] = _pct(int(spre.cap.sum()), len(spre))
+        m["cattura_post_attacco_pct"] = _pct(int(spost.cap.sum()), len(spost))
+        m["coppie_coerenti_pre_mediana"] = float(spre.ok.median()) if len(spre) else None
+        m["coppie_coerenti_post_mediana"] = float(spost.ok.median()) if len(spost) else None
+        first = st[(st.time >= attack_time) & (st.cap == 1)].groupby("observer_id").time.min() - attack_time
+        n_obs = st[st.time >= attack_time].observer_id.nunique()
+        m["cattura_osservatori_che_rilevano"] = int(len(first))
+        m["cattura_osservatori_attivi"] = int(n_obs)
+        m["cattura_latenza_mediana_s"] = float(first.median()) if len(first) else None
     return m
 
 

@@ -222,6 +222,25 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         Senza `--spoof` il simulatore e' identico al 6.2
   - [ ] Jitter del PPS e quantizzazione (qErr) da schede tecniche reali; offset UWB tra droni dai timestamp DS-TWR
 - [ ] **Fase 8 – Rilevamento dello spoofer esterno** con il consenso esistente
+  - [x] 8.1 Cattura dello sciame: ogni drone, una volta per frame, confronta per ogni coppia di ALTRI droni la
+        distanza tra i GPS dichiarati (riportati all'istante del range con la velocita' dei GPS dichiarati su ~1 s)
+        con il range UWB condiviso; coppia coerente se lo scarto e' entro 4 sigma (GPS individuale proiettato +
+        UWB 0,36 m2 + velocita' 2 m/s x tempo). Cattura se meno del 25% delle coppie e' coerente (>= 6 coppie)
+        per 10 frame; uscita con 10 frame sopra soglia. Uno spoofer a singola antenna fa vedere a tutti lo stesso
+        punto: quasi nessuna coppia e' coerente; pochi droni bugiardi rendono incoerenti solo le loro coppie.
+        Colonne CSV `pairs_ok_frac`, `swarm_capture`; metriche `cattura_*`, `coppie_coerenti_*`. Solo
+        rilevamento: i filtri non cambiano (metriche esistenti identiche al 6.2).
+        Risultati (3 seed): nodo 0 bugiardo -> 0% false catture prima e dopo, coppie coerenti 100% / 81%, minimo
+        senza attacco 98,8%; spoofer a 100 s -> 20/20 droni in 0,95 s (= isteresi), 100% del tempo, coppie
+        coerenti 1-8% (le coppie di droni a meno di ~5 m restano compatibili). Spoofer a 200 s (8 droni): 8/8 in 1,0 s.
+        Errore di progetto trovato e corretto: la prima versione usava la velocita' degli EKF, che sotto cattura
+        divergono (30-80 m/s) e rendevano "coerenti" a caso il 25-33% delle coppie. Principio: il test di
+        cattura non deve dipendere da stati stimati con le ancore GPS
+  - [ ] 8.2 Sotto cattura: smettere di usare il GPS come ancora, localizzazione solo relativa (UWB), consenso
+        sulla cattura (bit nel pacchetto)
+  - [ ] Nota di metodo (7.2): sotto cattura il sistema attuale e' caotico; tra macchine diverse le metriche dello
+        scenario con spoofer differiscono (es. allarmi 83,3% contro 84,5%) per arrotondamenti di 1e-10 (verificato
+        ricompilando con contrazione FMA). Confronti tra macchine: con tolleranza e su piu' seed
 - [ ] **Fase 9 – Localizzazione dello spoofer** (istantanea ai minimi quadrati + EKF nel tempo)
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
@@ -252,3 +271,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-07 | 6.2 | model anchor gps uncertainty | Test chi-quadro calibrato su 3 seed (0,10% oltre il 99,9%); receiver, oldest e consider di default |
 | 2026-10-11 | 7.1 | add external gnss spoofer model | Tutti vedono la stessa posizione falsa; PPS = TDoA verso lo spoofer; simulatore identico al 6.2 |
 | 2026-10-14 | 7.2 | add external spoofer to the simulator | Cattura totale vista nel simulatore; prima localizzazione dai PPS (ideale) |
+| 2026-10-14 | 8.1 | detect swarm capture | 3 seed: 20/20 in 0,95 s sotto spoofer, 0% false catture con il nodo 0 bugiardo |

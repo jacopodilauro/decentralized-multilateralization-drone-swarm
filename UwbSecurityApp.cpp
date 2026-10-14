@@ -187,6 +187,8 @@ void UwbSecurityApp::SendUwbMessage() {
 
     if (m_slotMap.find(m_id) == m_slotMap.end() || m_slotMap[m_id] == UINT32_MAX) return;
 
+    EvaluateSwarmCapture();
+
     //if (!m_isActive || m_slotMap[m_id] == UINT32_MAX) return; 
     
     double now = Simulator::Now().GetSeconds();
@@ -516,6 +518,9 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         m_lastKnownGps[senderId]  = claimedGps;
         if (m_gnss) { double c[6]; header.GetGpsCov(c); m_lastKnownGpsCov[senderId] = CovFromArray(c); }
         m_lastKnownTime[senderId] = txTimeSec;
+        auto& hist = m_gpsHistory[senderId];
+        hist.emplace_back(txTimeSec, claimedGps);
+        while (hist.size() > 1 && txTimeSec - hist.front().first > 1.5) hist.pop_front();
 
         for (const auto& pair : m_slotMap) {
             uint32_t i = pair.first; 
@@ -796,7 +801,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             estimatedPos, claimedGps, senderTruePos,
             collectiveAlarm, recoveredPos, *m_csv, totalVotes, threshold,
             currentActiveNodes, peerVoteCount,
-            myVote, suspiciousNow, mahal, posStd, gpsChi2);
+            myVote, suspiciousNow, mahal, posStd, gpsChi2, m_pairsOkFrac, m_swarmCaptured);
 
         // Stampa solo quando cambia il voto individuale o l'allarme collettivo di questo osservatore
         uint32_t voteState = myVote * 2u + (collectiveAlarm ? 1u : 0u);
@@ -813,6 +818,73 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
                       << std::endl;
         }
     }
+}
+
+Eigen::Vector3d UwbSecurityApp::ClaimedVelocity(uint32_t id) const {
+    // Velocita' dai GPS dichiarati su ~1 s: l'errore GPS individuale e' lento (multipath ~10 s) e si cancella
+    auto it = m_gpsHistory.find(id);
+    if (it == m_gpsHistory.end() || it->second.size() < 2) return Eigen::Vector3d::Zero();
+    const auto& h = it->second;
+    double dt = h.back().first - h.front().first;
+    return dt >= 0.5 ? Eigen::Vector3d((h.back().second - h.front().second) / dt) : Eigen::Vector3d::Zero();
+}
+
+void UwbSecurityApp::EvaluateSwarmCapture() {
+    const double MAX_AGE     = 0.5;    // GPS e range piu' vecchi non vengono usati [s]
+    const double SIGMA_UWB2  = 0.36;   // varianza UWB conservativa (NLOS, vedi DsTwrVar) [m^2]
+    const double SIGMA_VEL   = 2.0;    // incertezza della velocita' dai GPS dichiarati (curve degli ospiti) [m/s]
+    const double K_SIGMA     = 4.0;    // coppia coerente se |distanza GPS - range| <= 4 sigma
+    const double MIN_OK_FRAC = 0.25;   // cattura se meno del 25% delle coppie e' coerente
+    const int    MIN_PAIRS   = 6;
+    const int    HYSTERESIS  = 10;     // frame consecutivi per entrare o uscire (1 s)
+    const Eigen::Matrix3d SIMPLE_COV = Eigen::Vector3d(0.04, 0.04, 0.16).asDiagonal();
+
+    double now = Simulator::Now().GetSeconds();
+    std::vector<uint32_t> ids;
+    for (const auto& kv : m_lastKnownGps)
+        if (kv.first != m_id && m_lastKnownTime.count(kv.first) && now - m_lastKnownTime[kv.first] <= MAX_AGE)
+            ids.push_back(kv.first);
+
+    int nPairs = 0, nOk = 0;
+    for (size_t a = 0; a < ids.size(); a++) {
+        for (size_t b = a + 1; b < ids.size(); b++) {
+            uint32_t k = ids[a], j = ids[b];
+            // range UWB tra k e j: il piu' recente tra quello condiviso da k e quello condiviso da j
+            double r = -1.0, tr = -1e9;
+            for (auto [x, y] : { std::make_pair(k, j), std::make_pair(j, k) }) {
+                auto ix = m_networkRanges.find(x);
+                if (ix == m_networkRanges.end()) continue;
+                auto iy = ix->second.find(y);
+                if (iy == ix->second.end() || iy->second <= 0.0) continue;
+                double t = m_networkRangeTimes[x][y];
+                if (t > tr) { tr = t; r = iy->second; }
+            }
+            if (r <= 0.0 || now - tr > MAX_AGE) continue;
+            // GPS dichiarati riportati all'istante della misura UWB con la velocita' dei GPS dichiarati (~1 s)
+            double dtk = tr - m_lastKnownTime[k], dtj = tr - m_lastKnownTime[j];
+            Eigen::Vector3d vk = ClaimedVelocity(k), vj = ClaimedVelocity(j);
+            Eigen::Vector3d gk = m_lastKnownGps[k] + vk * dtk, gj = m_lastKnownGps[j] + vj * dtj;
+            Eigen::Vector3d d = gk - gj;
+            double dist = d.norm();
+            Eigen::Matrix3d C = (m_gnss && m_lastKnownGpsCov.count(k) ? m_lastKnownGpsCov[k] : SIMPLE_COV)
+                              + (m_gnss && m_lastKnownGpsCov.count(j) ? m_lastKnownGpsCov[j] : SIMPLE_COV);
+            double gpsVar = dist > 1e-3 ? (d / dist).dot(C * (d / dist)) : C.trace() / 3.0;
+            double var = gpsVar + SIGMA_UWB2 + SIGMA_VEL * SIGMA_VEL * (dtk * dtk + dtj * dtj);
+            nPairs++;
+            if (std::fabs(dist - r) <= K_SIGMA * std::sqrt(var)) nOk++;
+        }
+    }
+    if (nPairs < MIN_PAIRS) return;   // troppo poche coppie: stato invariato
+    m_pairsOkFrac = double(nOk) / nPairs;
+    bool suspect = m_pairsOkFrac < MIN_OK_FRAC;
+    if (suspect) m_captureCount = std::max(1, m_captureCount + 1);
+    else         m_captureCount = std::min(-1, m_captureCount - 1);
+    bool before = m_swarmCaptured;
+    if (m_captureCount >= HYSTERESIS)  m_swarmCaptured = true;
+    if (m_captureCount <= -HYSTERESIS) m_swarmCaptured = false;
+    if (s_verbosity >= 1 && before != m_swarmCaptured)
+        std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_swarmCaptured ? "CATTURA DELLO SCIAME rilevata" : "fine della cattura")
+                  << " (coppie coerenti " << nOk << "/" << nPairs << ")" << std::endl;
 }
 
 Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {

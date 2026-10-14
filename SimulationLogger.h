@@ -24,7 +24,9 @@ public:
         bool suspiciousNow,     // sospetto istantaneo del singolo campione (prima dell'isteresi)
         double mahal,           // distanza di Mahalanobis calcolata dall'EKF
         double posStd,          // deviazione standard di posizione stimata dall'EKF
-        double gpsChi2          // statistica del test chi-quadro (stima contro GPS dichiarato)
+        double gpsChi2,         // statistica del test chi-quadro (stima contro GPS dichiarato)
+        double pairsOkFrac,     // frazione di coppie coerenti GPS/UWB vista dall'osservatore (Fase 8)
+        bool swarmCapture       // l'osservatore ritiene lo sciame catturato da uno spoofer esterno
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
@@ -37,7 +39,8 @@ public:
             << recovered_pos.x() << "," << recovered_pos.y() << "," << recovered_pos.z() << ","
             << totalVotes << "," << threshold << "," 
             << activeNodes << "," << peerVotes << ","
-            << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "," << gpsChi2 << "\n";
+            << myVote << "," << suspiciousNow << "," << mahal << "," << posStd << "," << gpsChi2
+            << "," << pairsOkFrac << "," << swarmCapture << "\n";
     }
 };
 

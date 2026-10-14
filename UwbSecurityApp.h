@@ -169,6 +169,17 @@ private:
     static int      s_anchorModel;
     std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
     std::map<uint32_t, Eigen::Matrix3d> m_lastKnownGpsCov;   // covarianza GPS individuale dichiarata [m^2]
+    // Cattura dello sciame (Fase 8): frazione di coppie di altri droni la cui distanza dai GPS dichiarati e'
+    // coerente con il range UWB. Uno spoofer a singola antenna fa vedere a tutti lo stesso punto: quasi
+    // nessuna coppia e' coerente. Pochi droni bugiardi rendono incoerenti solo le coppie che li coinvolgono
+    void   EvaluateSwarmCapture();
+    double m_pairsOkFrac   = 1.0;
+    // Storia breve dei GPS dichiarati (istante, posizione) per una velocita' INDIPENDENTE dagli EKF: sotto cattura
+    // gli EKF (ancorati a GPS falsi) divergono e la loro velocita' rende "coerenti" coppie a caso
+    std::map<uint32_t, std::deque<std::pair<double, Eigen::Vector3d>>> m_gpsHistory;
+    Eigen::Vector3d ClaimedVelocity(uint32_t id) const;
+    int    m_captureCount  = 0;      // frame consecutivi sospetti (> 0) o non sospetti (< 0)
+    bool   m_swarmCaptured = false;
     std::unique_ptr<gnss::Receiver> m_gnss;   // ricevitore GNSS di questo drone
     gnss::Fix m_lastGnssFix;                  // ultimo fix (il clock bias servira' per lo spoofer)
     uwbclock::Clock m_uwbClock;          // orologio del chip UWB di questo drone
