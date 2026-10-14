@@ -21,6 +21,10 @@ const double CORE_BOB_AMP   = 12.0;   // m, oscillazione verticale sfasata per n
 const double PATROL_SPEED = 10.0;   
 const double PATROL_LENGTH = 50.0; 
 
+static double g_scale = 1.0;
+void SetFormationScale(double s) { g_scale = s; }
+double GetFormationScale() { return g_scale; }
+
 Vector GetFibonacciPoint(int i, int n, double radius) {
     double y = 1 - (i / (double)(n - 1)) * 2;
     double radius_at_y = std::sqrt(1 - y * y);
@@ -58,13 +62,13 @@ void AssignTrajectoryToNode(
         }
         // 2. Sciame Core (Dinamico da 1-num_core)
         else if (id <= num_core) {
-            Vector offset = GetFibonacciPoint(id - 1, num_core, CORE_SPHERE_RADIUS);
+            Vector offset = GetFibonacciPoint(id - 1, num_core, CORE_SPHERE_RADIUS * g_scale);
 
-            double a  = CORE_ROT_SPEED * t;
+            double a  = (CORE_ROT_SPEED / g_scale) * t;
             double ca = std::cos(a), sa = std::sin(a);
             double rx = offset.x * ca - offset.y * sa;     // rotazione rigida attorno a z
             double ry = offset.x * sa + offset.y * ca;
-            double bob = CORE_BOB_AMP * std::sin(a + (id * 2.0 * M_PI / std::max(1, num_core)));
+            double bob = (CORE_BOB_AMP * g_scale) * std::sin(a + (id * 2.0 * M_PI / std::max(1, num_core)));
 
             pos = Vector(ARENA_CENTER_X + rx,
                         ARENA_CENTER_Y + ry,
@@ -75,8 +79,8 @@ void AssignTrajectoryToNode(
             int orbiterIdx = id - num_core - 1;
             double phase = orbiterIdx * (2.0 * M_PI / std::max(1, num_orbiters)); 
             double tiltAngle = orbiterIdx * (M_PI / std::max(1, num_orbiters));
-            double angle = ORBIT_SPEED * t + phase;
-            double r = ORBIT_RADIUS + (orbiterIdx % 4) * 2.0; 
+            double angle = (ORBIT_SPEED / g_scale) * t + phase;
+            double r = (ORBIT_RADIUS + (orbiterIdx % 4) * 2.0) * g_scale;
 
             pos.x = ARENA_CENTER_X + r * std::cos(angle) * std::cos(tiltAngle);
             pos.y = ARENA_CENTER_Y + r * std::sin(angle);
@@ -85,8 +89,8 @@ void AssignTrajectoryToNode(
         // 4. Pattugliatori "Lobo" (num_patrollers)
         else {
             int patrolIdx = id - num_core - num_orbiters - 1;
-            double A = PATROL_LENGTH / 2.0;
-            double B = 10.0;
+            double A = (PATROL_LENGTH / 2.0) * g_scale;
+            double B = 10.0 * g_scale;
             double w = PATROL_SPEED / A;    
             double timeOffset = patrolIdx * 4.0; 
             double currentTime = t + timeOffset;
@@ -95,7 +99,7 @@ void AssignTrajectoryToNode(
             double lineAngle = patrolIdx * (M_PI / std::max(1, num_patrollers)); 
             double rotated_x = ex * std::cos(lineAngle) - ey * std::sin(lineAngle);
             double rotated_y = ex * std::sin(lineAngle) + ey * std::cos(lineAngle);
-            double z_offset = (patrolIdx % 5) * 6.0 - 12.0; 
+            double z_offset = ((patrolIdx % 5) * 6.0 - 12.0) * g_scale;
 
             pos.x = ARENA_CENTER_X + rotated_x;
             pos.y = ARENA_CENTER_Y + rotated_y;
@@ -120,17 +124,19 @@ void AssignGuestTrajectory(
 
     double angle = guestId * (2.0 * M_PI / 20.0); 
     
-    double start_radius = 100.0;
+    const double S = g_scale;
+    const double orbitR = 15.0 * S, orbitW = 0.5 / S;   // stessa velocita' lineare (7,5 m/s) a ogni scala
+    double start_radius = 100.0 * S;
     Vector startPos(ARENA_CENTER_X + start_radius * std::cos(angle),
                     ARENA_CENTER_Y + start_radius * std::sin(angle),
                     ARENA_CENTER_Z_MEAN);
 
     Vector centerPos(ARENA_CENTER_X, ARENA_CENTER_Y, ARENA_CENTER_Z_MEAN);
-    Vector orbitStartPos(centerPos.x + 15.0 * std::cos(angle), centerPos.y + 15.0 * std::sin(angle), centerPos.z);
+    Vector orbitStartPos(centerPos.x + orbitR * std::cos(angle), centerPos.y + orbitR * std::sin(angle), centerPos.z);
                          
     double endStayTime = 150.0 - 50.0;
-    double endAngle = endStayTime * 0.5 + angle;
-    Vector orbitEndPos(centerPos.x + 15.0 * std::cos(endAngle), centerPos.y + 15.0 * std::sin(endAngle), centerPos.z);
+    double endAngle = endStayTime * orbitW + angle;
+    Vector orbitEndPos(centerPos.x + orbitR * std::cos(endAngle), centerPos.y + orbitR * std::sin(endAngle), centerPos.z);
 
     for (double t = 0.0; t <= simTime; t += step_sec) {
         Vector pos;
@@ -142,8 +148,8 @@ void AssignGuestTrajectory(
         }
         else if (t >= 50.0 && t <= 150.0) {
             double stayTime = t - 50.0;
-            pos.x = centerPos.x + 15.0 * std::cos(stayTime * 0.5 + angle);
-            pos.y = centerPos.y + 15.0 * std::sin(stayTime * 0.5 + angle);
+            pos.x = centerPos.x + orbitR * std::cos(stayTime * orbitW + angle);
+            pos.y = centerPos.y + orbitR * std::sin(stayTime * orbitW + angle);
             pos.z = centerPos.z;
         }
         else if (t > 150.0 && t <= 200.0) {

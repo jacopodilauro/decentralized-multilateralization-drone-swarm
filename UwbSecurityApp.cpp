@@ -1,4 +1,5 @@
 #include "UwbSecurityApp.h"
+#include "Trajectories.h"
 #include "DsTwr.h"
 #include "UwbHeader.h"
 #include "SimulationLogger.h"
@@ -429,9 +430,10 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
         ns3::Vector myPos = myMob->GetPosition();
 
-        // 1. Le coordinate assolute dell'area di missione (il cubo rosso)
-        double MIN_X = 70.0;  double MAX_X = 130.0;
-        double MIN_Y = 70.0;  double MAX_Y = 130.0;
+        // 1. Le coordinate assolute dell'area di missione (il cubo rosso), scalate con la formazione
+        const double S = GetFormationScale();
+        double MIN_X = 100.0 - 30.0 * S;  double MAX_X = 100.0 + 30.0 * S;
+        double MIN_Y = 100.0 - 30.0 * S;  double MAX_Y = 100.0 + 30.0 * S;
 
         // 2. Calcolo della distanza matematica dal bordo del cubo
         double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
@@ -439,7 +441,7 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         double distanceToCube = std::sqrt(dx*dx + dy*dy);
 
         // 1. IL GEOFENCE: Se sento per la prima volta un nodo a meno di 10m
-        if (m_isGuest && m_macState == STATE_OUT_OF_RANGE && distanceToCube/*distFisica*/ <= 10.0) {
+        if (m_isGuest && m_macState == STATE_OUT_OF_RANGE && distanceToCube/*distFisica*/ <= 10.0 * S) {
             if (s_verbosity >= 1) std::cout << "\n>>> [GEOFENCE RF] Drone " << GetNode()->GetId()
                       << " capta segnale a " << distanceToCube/*distFisica*/ << "m. Entra in Ascolto Passivo." << std::endl;
             m_macState = STATE_LISTENING;
@@ -1223,15 +1225,16 @@ void UwbSecurityApp::EvaluateMacState() {
         Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
         ns3::Vector myPos = myMob->GetPosition();
 
-        double MIN_X = 70.0;  double MAX_X = 130.0;
-        double MIN_Y = 70.0;  double MAX_Y = 130.0;
+        const double S = GetFormationScale();
+        double MIN_X = 100.0 - 30.0 * S;  double MAX_X = 100.0 + 30.0 * S;
+        double MIN_Y = 100.0 - 30.0 * S;  double MAX_Y = 100.0 + 30.0 * S;
 
         double dx = std::max({0.0, MIN_X - myPos.x, myPos.x - MAX_X});
         double dy = std::max({0.0, MIN_Y - myPos.y, myPos.y - MAX_Y});
         double distanceToCube = std::sqrt(dx*dx + dy*dy);
 
-        // Se mi sono allontanato oltre 14 metri (Isteresi: 10 per entrare, 14 per uscire)
-        if (distanceToCube > 14.0) {
+        // Se mi sono allontanato oltre 14 metri (Isteresi: 10 per entrare, 14 per uscire), scalati con la formazione
+        if (distanceToCube > 14.0 * S) {
             if (m_macState == STATE_ACTIVE && !m_pendingLeave) {
                 if (s_verbosity >= 1) std::cout << "\n>>> [ISTERESI GEOFENCE] Drone " << m_id
                           << " ha superato i 14m dal cubo (" << distanceToCube 

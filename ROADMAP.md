@@ -288,8 +288,19 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         errore di sincronizzazione std 2,47 m (atteso dal solo dente di sega: 2,45 m) -> direzione 0,54 gradi
         (oss. 1), 0,15 (oss. 5); con qErr compensato (`--ppsSawtoothNs=0`): 0,50 m -> 0,23 e 0,12 gradi. Elevazione
         1,3-2 gradi; distanza non determinata (9.2). Senza spoofer: identico al 6.2
-  - [ ] 9.2 Localizzazione nel simulatore (online): filtro sulla posizione dello spoofer che stima anche la lenta
-        deriva del riferimento (per recuperare la distanza)
+  - [x] 9.2a Analisi (prototipo, non consegnato): un filtro sullo spoofer con la geometria reale converge su una
+        distanza sbagliata. Causa misurata: il segnale di curvatura (0,10 m) e' minore dell'errore di forma (0,19 m)
+  - [x] Strada A (scelta con Jacopo il 14/10): `--formationScale` S (distanze x S, velocita' angolari / S: velocita'
+        lineari invariate; geofence scalato, gli ospiti entrano ed escono negli stessi istanti). S = 1 identico bit per
+        bit (CSV, gnss_log, pps_log, traiettorie, con e senza spoofer). `tools/aperture_sweep.py` (--one/--plot) e
+        `tools/run_aperture_sweep.sh` (campagna S x R x seed in parallelo). Preliminare, seed 1, 8 osservatori base:
+        R = 500 m: S = 1, 2, 3, 4 -> curvatura 0,10 / 0,39 / 0,87 / 1,58 m (errore di forma 0,19-0,22 m); distanza
+        reale (errore mediano) indeterminata / 109 / 187 / 42 m, determinata 25 / 87,5 / 75 / 100% degli osservatori;
+        R = 1000 m, S = 2: curvatura 0,20 = errore di forma -> al limite (425 m, 50%). Direzione reale, mediana sugli
+        8 osservatori: 0,4-1,7 gradi; a S = 1 da 0,31 a 4,55 gradi a seconda dell'osservatore (i valori 0,15-0,54
+        riportati prima erano dei soli osservatori 1 e 5)
+  - [ ] Campagna completa sul PC di Jacopo: S 1-4 x R 250/500/1000 x >= 5 seed
+  - [ ] Perche' alcuni osservatori stimano peggio la direzione (0, 2, 3, 6) e fusione delle stime degli osservatori
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -325,3 +336,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | 9.0 | add spoofer localization from swarm geometry | Con la geometria dello sciame: 18,5 gradi senza 8.2c, 0,88 gradi con 8.2c ideale |
 | 2026-10-14 | 8.2c | anchor the frame with onboard sensors | Deriva 340 m -> 4,7 m; direzione reale dello spoofer 0,6-1,6 gradi; distanza ancora aperta |
 | 2026-10-14 | 9.1 | real pps synchronization over uwb clocks | Senza ipotesi ideali sulla misura: direzione 0,1-0,5 gradi |
+| 2026-10-14 | strada A | add formation scale for the aperture study | Distanza misurabile quando la curvatura supera l'errore di forma (seed 1) |

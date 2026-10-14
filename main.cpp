@@ -120,6 +120,8 @@ int main(int argc, char *argv[])
     double ppsSawtoothNs = 10.0, ppsNoiseNs = 1.0;
     cmd.AddValue("ppsSawtoothNs", "PPS: quantizzazione a dente di sega, uniforme +-[ns] (0 = compensata con qErr)", ppsSawtoothNs);
     cmd.AddValue("ppsNoiseNs",    "PPS: rumore gaussiano residuo [ns]", ppsNoiseNs);
+    double formationScale = 1.0;
+    cmd.AddValue("formationScale", "Strada A: scala della formazione (distanze x S, velocita' lineari invariate)", formationScale);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
     EKF::SetDefaultQAcc(qAcc);
@@ -139,6 +141,9 @@ int main(int argc, char *argv[])
     RngSeedManager::SetRun(runId); 
 
     if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss deve essere receiver o simple" << std::endl; return 1; }
+    if (formationScale <= 0.0) { std::cerr << "--formationScale deve essere positivo" << std::endl; return 1; }
+    SetFormationScale(formationScale);
+    if (formationScale != 1.0) std::cout << ">>> Formazione scalata: S=" << formationScale << std::endl;
     if (spoof && gnssMode != "receiver") { std::cerr << "--spoof richiede --gnss=receiver" << std::endl; return 1; }
     if (gnssMode == "receiver") {
         // Una sola costellazione per simulazione: e' lei a rendere comune l'errore atmosferico tra i droni
