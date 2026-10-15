@@ -120,6 +120,10 @@ int main(int argc, char *argv[])
     double ppsSawtoothNs = 10.0, ppsNoiseNs = 1.0;
     cmd.AddValue("ppsSawtoothNs", "PPS: quantizzazione a dente di sega, uniforme +-[ns] (0 = compensata con qErr)", ppsSawtoothNs);
     cmd.AddValue("ppsNoiseNs",    "PPS: rumore gaussiano residuo [ns]", ppsNoiseNs);
+    std::string radio = "wifi";
+    uwblink::Params linkP;
+    cmd.AddValue("radio",      "Radio: wifi (storica, tutti ricevono tutto) | uwb (perdite in funzione della distanza)", radio);
+    cmd.AddValue("uwbSensDbm", "Radio UWB: sensibilita' del ricevitore [dBm] (-100 ~85 m al 50%; -90 ~23 m)", linkP.sensDbm);
     double formationScale = 1.0;
     cmd.AddValue("formationScale", "Strada A: scala della formazione (distanze x S, velocita' lineari invariate)", formationScale);
     cmd.Parse(argc, argv);
@@ -141,6 +145,11 @@ int main(int argc, char *argv[])
     RngSeedManager::SetRun(runId); 
 
     if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss deve essere receiver o simple" << std::endl; return 1; }
+    if (radio != "wifi" && radio != "uwb") { std::cerr << "--radio deve essere wifi oppure uwb" << std::endl; return 1; }
+    UwbSecurityApp::SetUwbRadio(radio == "uwb", linkP);
+    if (radio == "uwb")
+        std::cout << ">>> Radio UWB: EIRP " << uwblink::TxEirpDbm(linkP) << " dBm, sensibilita' " << linkP.sensDbm
+                  << " dBm, ricezione al 50% a " << uwblink::Range50(linkP) << " m" << std::endl;
     if (formationScale <= 0.0) { std::cerr << "--formationScale deve essere positivo" << std::endl; return 1; }
     SetFormationScale(formationScale);
     if (formationScale != 1.0) std::cout << ">>> Formazione scalata: S=" << formationScale << std::endl;
@@ -299,6 +308,7 @@ int main(int argc, char *argv[])
     std::cout << ">>> Running Simulation..." << std::endl;
     Simulator::Stop(Seconds(setSimTime + 1.0));
     Simulator::Run();
+    UwbSecurityApp::PrintLinkStats();
     Simulator::Destroy();
     if (anim) {
         delete anim;

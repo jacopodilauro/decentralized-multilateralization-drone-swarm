@@ -143,8 +143,25 @@ La colonna `alarm` del CSV è l'**allarme collettivo** (voti ≥ soglia), non il
 Ordine dei lavori da qui (deciso il 5 ottobre 2026): Fasi 6 -> 7 -> 8 -> 9 (contributo principale),
 poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper solo dopo le Fasi 3 e 5.
 
-- [ ] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm;
+- [~] **Fase 3 – Radio realistica** (portata UWB, perdita pacchetti vs distanza, airtime) al posto del Wi-Fi a 30 dBm;
       valutare qui un'allocazione dinamica degli slot con collisioni vere
+  - [x] 3.1 `--radio=uwb` (default `wifi`, identico bit per bit): `UwbLink.h` decide se un pacchetto arriva in funzione della
+        distanza. EIRP -41,3 dBm/MHz su 499,2 MHz = -14,3 dBm; spazio libero a 1 m a 6,4896 GHz (48,7 dB) + 10 n log10(d)
+        con n = 1,76 e ombreggiamento 0,83 dB (IEEE 802.15.4a CM5 outdoor LOS) + 3 dB d'antenna; ricezione a S centrata
+        sulla sensibilita' `--uwbSensDbm` (-100 dBm, da verificare sul datasheet DW3000), larga 1 dB. Ricezione al 50% a
+        85 m (con -90 dBm: 23 m, portata riportata in pratica da utenti DWM3000). Il trasporto resta lo stack Wi-Fi (TDMA,
+        slot 5 ms): si decide solo SE il pacchetto arriva. Statistiche per fascia di distanza a fine simulazione.
+        Test `test_uwblink`. LOS/NLOS e ombreggiamento correlato: Fase 5.
+  - [x] 3.2 Membership robusta alle perdite (scoperta con la radio UWB a S = 4: 363 espulsioni a catena, sciame crollato,
+        cattura non rilevata). Voti di espulsione con istante e scadenza (2 x timeout); notizie indirette (`LastEvidence`:
+        un altro drone ha misurato la distanza da X); un voto contro X conta solo se anche chi lo riceve non ha notizie
+        fresche di X; nessuno accetta voti contro se stesso; quorum delle espulsioni sui membri vivi (quello dei saluti
+        volontari resta su tutti, per non cambiare il Wi-Fi). Con il Wi-Fi le espulsioni sono 0: CSV identico.
+        S = 4, radio UWB, seed 1: con spoofer -> pacchetti 76.635 -> 533.218 (62,9% ricevuti), cattura e consenso 20/20,
+        8/8 droni base connessi fino alla fine, 52 espulsioni tutte tra 164 e 170 s (ospiti fuori portata; nessun base
+        espulso da un base). Drone bugiardo (nodo 0): rilevato 7/7 in 4,3 s, FA onesti dopo 0%, FA collettivi prima
+        0,54%, errore relativo base p95 5,9 m. S = 1, radio UWB: 98% dei pacchetti, metriche entro l'1% del Wi-Fi
+        - [ ] Campagna della strada A con `EXTRA="--radio=uwb"`; confronto Wi-Fi/UWB a parita' di scala
 - [ ] **Fase 4 – Clock realistici** (offset, deriva ppm, jitter) e ranging dai timestamp dei pacchetti (anticipata)
   - [x] 4.1 `ClockModel.h` (contatore 40 bit, tick 15,65 ps, offset casuale, skew +-20 ppm, jitter) e
         `DsTwr.h` (DS-TWR asimmetrico, differenze modulo 2^40). Test `tests/test_dstwr.cc`:
@@ -344,3 +361,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-14 | strada A | add formation scale for the aperture study | Distanza misurabile quando la curvatura supera l'errore di forma (seed 1) |
 | 2026-10-15 | strada A | fix sweep error handling | La campagna segnava "fatto" anche con simulazioni fallite (build vecchia): ora controllo iniziale, ERRORE per run, riepilogo |
 | 2026-10-15 | strada A | add swarm direction fusion | Fusione tra droni: direzione 0,34 gradi (mediana su 5 seed); limite residuo = orientamento comune |
+| 2026-10-15 | 3.1-3.2 | add uwb radio and loss-robust membership | Radio UWB opzionale; espulsioni a catena corrette; Wi-Fi identico |

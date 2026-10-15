@@ -11,6 +11,7 @@
 #include "ClockModel.h"
 #include "GnssModel.h"
 #include "ImuModel.h"
+#include "UwbLink.h"
 #include "random"
 
 #include <Eigen/Dense>
@@ -62,6 +63,11 @@ public:
     static void SetAnchorModel(int m) { s_anchorModel = m; }
     // Sensori di bordo indipendenti dal GPS (8.2c): sotto cattura ogni drone misura e annuncia la propria velocita'
     static void SetImu(bool on, const imu::Params& p) { s_imuOn = on; s_imuParams = p; }
+    // Fase 3: radio UWB (pacchetti persi in funzione della distanza, UwbLink.h) invece del Wi-Fi in cui tutti
+    // ricevono tutto. Il trasporto resta lo stack Wi-Fi di ns-3: con TDMA e slot di 5 ms la durata dei pacchetti
+    // (~0,5 ms a 6,8 Mbit/s con preambolo) non conta; qui si decide solo SE il pacchetto arriva
+    static void SetUwbRadio(bool on, const uwblink::Params& p) { s_uwbRadio = on; s_linkParams = p; }
+    static void PrintLinkStats();
     // PPS del ricevitore GNSS (9.1): dente di sega uniforme +-sawtooth (quantizzazione, compensabile con qErr) +
     // rumore gaussiano residuo; log delle differenze di PPS per osservatore (pps_log.csv)
     static void SetPps(double sawtoothNs, double noiseNs, const std::string& logPath);
@@ -154,7 +160,12 @@ private:
     // Mappa: ID del drone che ha chiesto il Leave -> Elenco (Set) di chi ha approvato
     std::map<uint32_t, std::set<uint32_t>> m_pendingLeaves;
     // Mappa: ID del drone sospettato "Morto" -> Elenco (Set) di chi vota per cacciarlo
-    std::map<uint32_t, std::set<uint32_t>> m_pendingEvictions;
+    // Voti di espulsione: drone -> (votante -> istante del voto). I voti scadono (PruneEvictionVotes) e un drone
+    // vota contro X solo se non ha notizie di X da troppo tempo, ne' dirette ne' indirette (LastEvidence): con una
+    // radio a portata limitata "io non lo sento" non significa "non c'e' piu'"
+    std::map<uint32_t, std::map<uint32_t, double>> m_pendingEvictions;
+    double LastEvidence(uint32_t id) const;
+    void   PruneEvictionVotes(double now);
     // Lista dei droni che IO considero inattivi (da comunicare agli altri)
     std::set<uint32_t> m_myEvictionVotes;
     // Lista dei droni che IO so voler uscire (da comunicare agli altri)
@@ -175,6 +186,10 @@ private:
     static bool     s_shareOldest;
     static int      s_anchorModel;
     static bool         s_imuOn;
+    static bool             s_uwbRadio;
+    static uwblink::Params  s_linkParams;
+    static uint64_t         s_linkTot[6], s_linkOk[6];   // per fasce di distanza di 30 m (l'ultima: oltre 150 m)
+    std::mt19937_64         m_linkRng{ 11 };
     static imu::Params  s_imuParams;
     imu::Sensor     m_imu;
     std::map<uint32_t, std::pair<Eigen::Vector3d, double>> m_peerImuVel;   // (velocita' annunciata, istante)

@@ -30,6 +30,22 @@ uint32_t UwbSecurityApp::s_shareK = 10;
 bool UwbSecurityApp::s_shareOldest = true;
 int UwbSecurityApp::s_anchorModel = 2;
 bool UwbSecurityApp::s_imuOn = true;
+bool UwbSecurityApp::s_uwbRadio = false;
+uwblink::Params UwbSecurityApp::s_linkParams;
+uint64_t UwbSecurityApp::s_linkTot[6] = { 0, 0, 0, 0, 0, 0 };
+uint64_t UwbSecurityApp::s_linkOk[6]  = { 0, 0, 0, 0, 0, 0 };
+
+void UwbSecurityApp::PrintLinkStats() {
+    if (!s_uwbRadio) return;
+    uint64_t tot = 0, ok = 0;
+    for (int i = 0; i < 6; i++) { tot += s_linkTot[i]; ok += s_linkOk[i]; }
+    std::cout << ">>> Radio UWB: pacchetti ricevuti " << std::fixed << std::setprecision(2)
+              << (tot ? 100.0 * ok / tot : 0.0) << "% di " << tot << " | per distanza:";
+    const char* lab[6] = { "0-30", "30-60", "60-90", "90-120", "120-150", ">150" };
+    for (int i = 0; i < 6; i++)
+        if (s_linkTot[i]) std::cout << " " << lab[i] << " m " << 100.0 * s_linkOk[i] / s_linkTot[i] << "%";
+    std::cout << std::defaultfloat << std::endl;
+}
 double UwbSecurityApp::s_ppsSawtoothS = 10e-9;
 double UwbSecurityApp::s_ppsNoiseS = 1e-9;
 std::ofstream UwbSecurityApp::s_ppsLog;
@@ -138,6 +154,7 @@ m_rng.seed(seq);
     }
     m_imu = imu::Sensor(s_imuParams, base ^ (0xD1B54A32D192ED03ULL * (m_id + 1)) ^ 0x1A0ULL);   // RNG proprio
     m_ppsRng.seed(base ^ (0x94D049BB133111EBULL * (m_id + 1)) ^ 0x995ULL);
+    m_linkRng.seed(base ^ (0xBF58476D1CE4E5B9ULL * (m_id + 1)) ^ 0x11F7ULL);
 
     if (s_rangingDsTwr) {
         // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
@@ -240,12 +257,15 @@ void UwbSecurityApp::SendUwbMessage() {
         for (auto const& [peerId, lastTime] : m_lastKnownTime) {
             if (m_pendingLeaves.count(peerId)) continue; 
             if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) {
-                if (now - lastTime > timeoutLimit) {
-                    m_pendingEvictions[peerId].insert(m_id);
+                if (now - LastEvidence(peerId) > timeoutLimit) {
+                    m_pendingEvictions[peerId][m_id] = now;
+                } else {
+                    m_pendingEvictions.erase(peerId);   // per me e' vivo: nessun voto contro di lui resta valido
                 }
             }
         }
     }
+    PruneEvictionVotes(now);
 
     Eigen::Vector3d myGps = GetCurrentGpsPosition();
     {   // mio GPS e sua storia breve: per l'istantanea dell'8.2b (nessuna estrazione casuale in piu')
@@ -404,7 +424,7 @@ std::cout << "Nodi Attivi: " << activeNodes
             for (const auto& pair : m_pendingEvictions) {
                 std::cout << "Eviction Guasto [Drone " << pair.first << "] -> Voti (" 
                           << pair.second.size() << "/" << quorum << "): { ";
-                for (uint32_t voter : pair.second) std::cout << voter << " ";
+                for (const auto& [voter, tv] : pair.second) std::cout << voter << " ";
                 std::cout << "}" << std::endl;
             }
         }
@@ -429,6 +449,15 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         Ptr<MobilityModel> myMob = GetNode()->GetObject<MobilityModel>();
         ns3::Vector myPos = myMob->GetPosition();
+
+        if (s_uwbRadio) {   // Fase 3: il pacchetto UWB arriva solo se il collegamento lo permette
+            ns3::Vector sp = NodeList::GetNode(senderId)->GetObject<MobilityModel>()->GetPosition();
+            double dist = std::sqrt(std::pow(sp.x - myPos.x, 2) + std::pow(sp.y - myPos.y, 2) + std::pow(sp.z - myPos.z, 2));
+            bool ok = uwblink::Received(s_linkParams, dist, m_linkRng);
+            int bin = std::min(5, (int)(dist / 30.0));
+            s_linkTot[bin]++; if (ok) s_linkOk[bin]++;
+            if (!ok) continue;
+        }
 
         // 1. Le coordinate assolute dell'area di missione (il cubo rosso), scalate con la formazione
         const double S = GetFormationScale();
@@ -475,34 +504,48 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         }
         
         for (uint32_t peerId : header.GetGossipEvictions()) {
+            if (peerId == m_id) continue;   // nessuno accetta voti contro se stesso
             if (m_pendingLeaves.count(peerId)) continue; 
             if (m_slotMap.count(peerId) && m_slotMap[peerId] != UINT32_MAX) {
-                m_pendingEvictions[peerId].insert(senderId);
-                if (m_lastKnownTime.count(peerId)) {
-                    double frameDur = m_swarmSize * m_slotDuration;
-                    double tLimit   = std::max(5.0 * frameDur, 2.0);
-                    double now2     = Simulator::Now().GetSeconds();
-                    if (now2 - m_lastKnownTime[peerId] > tLimit) {
-                        m_pendingEvictions[peerId].insert(m_id);
-                    }
+                double now2     = Simulator::Now().GetSeconds();
+                double frameDur = m_swarmSize * m_slotDuration;
+                double tLimit   = std::max(5.0 * frameDur, 2.0);
+                // il voto del mittente conta solo se anche per me peerId e' senza notizie fresche
+                if (now2 - LastEvidence(peerId) > tLimit) {
+                    m_pendingEvictions[peerId][senderId] = now2;
+                    m_pendingEvictions[peerId][m_id] = now2;
+                } else {
+                    m_pendingEvictions.erase(peerId);
                 }
             }
         }
 
         // --- 2. CONTROLLO QUORUM DINAMICO ---
-        uint32_t activeNodes = 0;
-        for (const auto& pair : m_slotMap) {
-            if (pair.second != UINT32_MAX) activeNodes++;
+        uint32_t activeNodes = 0;          // tutti i membri in lista (quorum dei saluti volontari, storico)
+        uint32_t aliveNodes  = 0;          // membri vivi: io e chi ha notizie fresche (quorum delle espulsioni)
+        {
+            double nowQ = Simulator::Now().GetSeconds();
+            double tLimQ = std::max(5.0 * m_swarmSize * m_slotDuration, 2.0);
+            for (const auto& pair : m_slotMap) {
+                if (pair.second == UINT32_MAX) continue;
+                activeNodes++;
+                if (pair.first == m_id || nowQ - LastEvidence(pair.first) <= tLimQ) aliveNodes++;
+            }
         }
+        // chi e' uscito dalla portata senza salutare non deve gonfiare il quorum delle espulsioni
+        uint32_t evictQuorum = (aliveNodes > 2) ? ((aliveNodes * 2 + 2) / 3) : aliveNodes;
         uint32_t quorum = (activeNodes > 2) ? ((activeNodes * 2 + 2) / 3) : activeNodes;
 
-        // A) Evictions 
+        // A) Evictions (solo voti ancora validi)
+        PruneEvictionVotes(Simulator::Now().GetSeconds());
         for (auto it = m_pendingEvictions.begin(); it != m_pendingEvictions.end(); ) {
             if (m_slotMap.count(it->first) && m_slotMap[it->first] != UINT32_MAX) { // <-- FIX
-                if (it->second.size() >= quorum) {
+                double tLim = std::max(5.0 * m_swarmSize * m_slotDuration, 2.0);
+                bool silent = Simulator::Now().GetSeconds() - LastEvidence(it->first) > tLim;
+                if (it->first != m_id && silent && it->second.size() >= evictQuorum) {
                     if (s_verbosity >= 2 || (s_verbosity >= 1 && AnnounceOnce('E', it->first, Simulator::Now().GetSeconds())))
                     std::cout << ">>> [QUORUM EVICTION] t=" << Simulator::Now().GetSeconds() 
-                              << "s | Espulsione forzata Drone " << it->first << std::endl;
+                              << "s | Espulsione forzata Drone " << it->first << " (decisa da " << m_id << ")" << std::endl;
                     RemovePeer(it->first);
                     ReorganizeSlots(it->first);
                     it = m_pendingEvictions.erase(it); 
@@ -1150,6 +1193,27 @@ void UwbSecurityApp::ScheduleLeave() {
     if (s_verbosity >= 1) std::cout << ">>> LEAVE SCHEDULATO: drone ID=" << m_id
               << " invierà goodbye al prossimo slot TDMA (t="
               << Simulator::Now().GetSeconds() << "s)" << std::endl;
+}
+
+double UwbSecurityApp::LastEvidence(uint32_t id) const {
+    // ultima notizia di id: diretta (un suo pacchetto) o indiretta (un altro drone ha misurato la distanza da id)
+    double t = -1e9;
+    auto d = m_lastKnownTime.find(id);
+    if (d != m_lastKnownTime.end()) t = d->second;
+    for (const auto& [k, times] : m_networkRangeTimes) {
+        auto it = times.find(id);
+        if (k != id && it != times.end()) t = std::max(t, it->second);
+    }
+    return t;
+}
+
+void UwbSecurityApp::PruneEvictionVotes(double now) {
+    const double ttl = 2.0 * std::max(5.0 * m_swarmSize * m_slotDuration, 2.0);   // il doppio del timeout
+    for (auto it = m_pendingEvictions.begin(); it != m_pendingEvictions.end();) {
+        for (auto v = it->second.begin(); v != it->second.end();)
+            v = (now - v->second > ttl) ? it->second.erase(v) : std::next(v);
+        it = it->second.empty() ? m_pendingEvictions.erase(it) : std::next(it);
+    }
 }
 
 void UwbSecurityApp::RemovePeer(uint32_t peerId) {

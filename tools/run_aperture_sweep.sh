@@ -9,6 +9,7 @@
 # Risultati: runs/<etichetta>/risultati.csv; figura:
 #   python3 tools/aperture_sweep.py --plot runs/<etichetta>/risultati.csv --png figura.png
 # Default: SCALES="1 2 3 4", DISTS="500", SEEDS="1 2 3", JOBS = numero di core, etichetta "aperture".
+# EXTRA: opzioni aggiuntive per il simulatore, es. EXTRA="--radio=uwb" (Fase 3).
 set -euo pipefail
 
 if [[ -z "${SIM:-}" ]]; then sed -n '2,12p' "$0"; exit 2; fi
@@ -35,7 +36,7 @@ one() {   # $1 = scala, $2 = distanza, $3 = seed
     if [[ -f "$d/aperture.csv" ]]; then echo "    gia' fatto: $d"; return 0; fi
     local rc=0
     ( cd "$d" && "$SIM_ABS" --runId="$3" --netanim=0 --verbose=1 --spoof=1 --spoofTime=100 \
-          --spoofDist="$2" --formationScale="$1" > stdout.txt 2>&1 ) || rc=$?
+          --spoofDist="$2" --formationScale="$1" $EXTRA > stdout.txt 2>&1 ) || rc=$?
     if [[ $rc -ne 0 ]]; then
         echo "    ERRORE S=$1 R=$2 seed $3: il simulatore e' uscito con codice $rc: $(head -1 "$d/stdout.txt")"
         return 1
@@ -48,9 +49,10 @@ one() {   # $1 = scala, $2 = distanza, $3 = seed
     echo "    fatto: S=$1 R=$2 seed $3"
 }
 export -f one
-export OUT SIM_ABS TOOLS
+EXTRA="${EXTRA:-}"
+export OUT SIM_ABS TOOLS EXTRA
 
-echo ">>> [$LABEL] scale: $SCALES | distanze: $DISTS | seed: $SEEDS | in parallelo: $JOBS"
+echo ">>> [$LABEL] scale: $SCALES | distanze: $DISTS | seed: $SEEDS | in parallelo: $JOBS | opzioni: ${EXTRA:-nessuna}"
 for s in $SCALES; do for r in $DISTS; do for n in $SEEDS; do echo "$s $r $n"; done; done; done \
     | xargs -P "$JOBS" -L 1 bash -c 'one $0 $1 $2' || true   # gli errori sono gia' stati scritti, run per run
 
