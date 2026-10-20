@@ -309,6 +309,7 @@ int main(int argc, char *argv[])
     Simulator::Stop(Seconds(setSimTime + 1.0));
     Simulator::Run();
     UwbSecurityApp::PrintLinkStats();
+    UwbSecurityApp::PrintPpsStats();
     Simulator::Destroy();
     if (anim) {
         delete anim;

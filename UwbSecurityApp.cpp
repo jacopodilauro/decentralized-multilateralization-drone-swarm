@@ -49,6 +49,27 @@ void UwbSecurityApp::PrintLinkStats() {
 double UwbSecurityApp::s_ppsSawtoothS = 10e-9;
 double UwbSecurityApp::s_ppsNoiseS = 1e-9;
 std::ofstream UwbSecurityApp::s_ppsLog;
+uint64_t UwbSecurityApp::s_ppsRejected[3] = { 0, 0, 0 };
+
+// 9.1: relazione tra gli orologi UWB di due droni (retta sulle coppie tx del mittente / rx mia - tempo di volo).
+//   PAIR_WINDOW_S  coppie piu' vecchie scartate: il contatore a 40 bit fa un giro in 2^40 x 15,65 ps = 17,2 s e le
+//                  differenze si leggono in +-8,6 s; senza limite, con le perdite UWB la finestra di 20 coppie arrivava
+//                  a ~17 s e le coppie vecchie venivano lette con un giro sbagliato (errori di km, PAPER_NOTES 4.21).
+//                  4 s = 2x la finestra nominale (20 coppie a 10 Hz = 1,9 s), meta' del mezzo giro
+//   TOF_MAX_AGE_S  la coppia sottrae il tempo di volo dall'ultima distanza DS-TWR: se e' vecchia, l'errore e' pari a
+//                  quanto e' cambiata la distanza (7,5 m/s x 4 s = 30 m); 0,3 s = 3 frame
+//   FIT_RMS_MAX_M  controllo di qualita': differenza di PPS scartata se il residuo RMS della retta supera 10 m
+//                  (seed 2, UWB, S = 2, prima della correzione: relazioni valide con residuo mediano 0,53 m, max 5,6 m;
+//                  quelle con il giro sbagliato da km)
+static constexpr double PAIR_WINDOW_S = 4.0;
+static constexpr double TOF_MAX_AGE_S = 0.3;
+static constexpr double FIT_RMS_MAX_M = 10.0;
+
+void UwbSecurityApp::PrintPpsStats() {
+    if (!s_ppsLog.is_open()) return;
+    std::cout << ">>> PPS: differenze calcolate " << s_ppsRejected[2] << ", scartate per residuo della retta > "
+              << FIT_RMS_MAX_M << " m: " << s_ppsRejected[1] << std::endl;
+}
 
 void UwbSecurityApp::SetPps(double sawtoothNs, double noiseNs, const std::string& logPath) {
     s_ppsSawtoothS = sawtoothNs * 1e-9;
@@ -716,11 +737,17 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         // 9.1: relazione tra l'orologio del mittente e il mio: tx (suo) <-> rx (mio) - tempo di volo dall'ultimo
         // DS-TWR. Ultime 20 coppie (~2 s), solo sotto cattura
         if (m_relMode && m_myLastRanges.size() > senderId && m_myLastRanges[senderId] > 0.0) {
-            int64_t tof = (int64_t)std::llround(m_myLastRanges[senderId] / c / uwbclock::TICK_S);
-            uint64_t rxc = (rxStamp - (uint64_t)tof) & ((1ULL << 40) - 1);
             auto& dq = m_clockPairs[senderId];
-            dq.emplace_back(cur.txStamp, rxc);
-            while (dq.size() > 20) dq.pop_front();
+            auto& dt = m_clockPairTimes[senderId];
+            if (currentTime - m_myLastRangeTime[senderId] <= TOF_MAX_AGE_S) {
+                int64_t tof = (int64_t)std::llround(m_myLastRanges[senderId] / c / uwbclock::TICK_S);
+                uint64_t rxc = (rxStamp - (uint64_t)tof) & ((1ULL << 40) - 1);
+                dq.emplace_back(cur.txStamp, rxc);
+                dt.push_back(currentTime);
+            }
+            while (dq.size() > 20 || (!dt.empty() && currentTime - dt.front() > PAIR_WINDOW_S)) {
+                dq.pop_front(); dt.pop_front();
+            }
         }
     }
 
@@ -741,8 +768,18 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
                 sx += x; sy += y; sxx += x * x; sxy += x * y; nn++;
             }
             double den = nn * sxx - sx * sx;
+            double b = 0.0, a = 0.0, rss = 0.0;
             if (std::fabs(den) > 0.0) {
-                double b = (nn * sxy - sx * sy) / den, a = (sy - b * sx) / nn;
+                b = (nn * sxy - sx * sy) / den; a = (sy - b * sx) / nn;
+                for (const auto& [tx, rx] : dq) {
+                    double r = (double)uwbclock::TickDiff(ref.second, rx) - a - b * (double)uwbclock::TickDiff(ref.first, tx);
+                    rss += r * r;
+                }
+                s_ppsRejected[2]++;
+            }
+            bool fitOk = std::fabs(den) > 0.0 && std::sqrt(rss / nn) * uwbclock::TICK_S * c <= FIT_RMS_MAX_M;
+            if (std::fabs(den) > 0.0 && !fitOk) s_ppsRejected[1]++;
+            if (fitOk) {
                 double xT = (double)uwbclock::TickDiff(ref.first, header.GetPpsStamp());
                 double dTicks = (double)uwbclock::TickDiff(own->second.stamp, ref.second) + a + b * xT;
                 double dMeas = dTicks * uwbclock::TICK_S * c;

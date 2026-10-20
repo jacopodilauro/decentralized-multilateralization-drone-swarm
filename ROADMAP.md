@@ -334,8 +334,17 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         pacchetti (finestra ~1,9 s): per questo il problema c'e' solo con UWB. Tocca solo la localizzazione dello spoofer
         (pps_log), non lo sciame. Oracolo con coppie <= 4 s: seed 2 oss. 5 -147 -> -6,0 gradi; seed 3 oss. 7 -146 -> -14,6;
         seed 5 oss. 6 76 -> 0,0; nessun PPS anomalo negli osservatori base
-  - [ ] Correzione: finestra delle coppie limitata nel tempo + controllo di qualita' della retta; Wi-Fi identico;
-        campagna 5 seed Wi-Fi/UWB
+  - [x] Correzione (9.1b): coppie della retta tra orologi al massimo di 4 s (meta' del mezzo giro del contatore) e solo con
+        una distanza DS-TWR di al massimo 0,3 s (con distanze vecchie il tempo di volo sottratto sbagliava di quanto si era
+        mosso il mittente: 7,5 m/s x 4 s = 30 m, le 2-8 misure residue da 20-36 m dell'oracolo con la sola finestra);
+        controllo di qualita': differenza di PPS scartata se il residuo RMS della retta supera 10 m (mai scattato: 0 su
+        ~28.800 per run). Cambia SOLO pps_log.csv: CSV dello sciame, gnss_log e ground_truth identici byte per byte;
+        Wi-Fi identico in tutto, pps_log compreso (seed 2, S = 2, spoofer); default identico (seed 1).
+        UWB, S = 2, R = 500 m, misure PPS oltre 20 m di errore: 57-71 -> 0 (seed 1, 2, 3, 5; std 2,56 m = dente di sega).
+        Direzione (mediana / peggiore sugli 8 osservatori): seed 1 1,43 / 10,2 -> 0,67 / 5,6 gradi; seed 2 -> 4,74 / 6,8;
+        seed 3 -> 8,45 / 14,8; seed 5 -> 1,12 / 1,5. Residuo del seed 2 (e 3): errore di orientamento COMUNE (tutti dallo
+        stesso lato, segue la rotazione del riferimento stimato, 4.19), non un drone anomalo
+  - [ ] Campagna 5 seed Wi-Fi/UWB (S = 1-2, R = 250/500/1000) dopo la correzione
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -376,3 +385,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-15 | strada A | add swarm direction fusion | Fusione tra droni: direzione 0,34 gradi (mediana su 5 seed); limite residuo = orientamento comune |
 | 2026-10-15 | 3.1-3.2 | add uwb radio and loss-robust membership | Radio UWB opzionale; espulsioni a catena corrette; Wi-Fi identico |
 | 2026-10-20 | 9.1 (diagnosi) | add per-observer diagnosis tool | Direzione UWB a S = 2: causa = finestra della retta tra orologi oltre mezzo giro del contatore a 40 bit; geometria corretta |
+| 2026-10-20 | 9.1b | limit the clock fit window | Misure PPS da km eliminate con radio UWB; Wi-Fi e CSV dello sciame identici |

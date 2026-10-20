@@ -71,6 +71,7 @@ public:
     // PPS del ricevitore GNSS (9.1): dente di sega uniforme +-sawtooth (quantizzazione, compensabile con qErr) +
     // rumore gaussiano residuo; log delle differenze di PPS per osservatore (pps_log.csv)
     static void SetPps(double sawtoothNs, double noiseNs, const std::string& logPath);
+    static void PrintPpsStats();
     double GetPpsTrueErr(uint8_t sec) const { auto it = m_ownPps.find(sec); return it == m_ownPps.end() ? NAN : it->second.trueErr; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
     double MaxRangeAge() const { return std::min(1.0, 8.0 * m_swarmSize * m_slotDuration); }
@@ -196,6 +197,7 @@ private:
     // 9.1: PPS marcato con l'orologio UWB; relazione tra il mio orologio e quello di ogni mittente
     static double s_ppsSawtoothS, s_ppsNoiseS;
     static std::ofstream s_ppsLog;
+    static uint64_t s_ppsRejected[3];   // [1] differenze di PPS scartate per residuo della retta, [2] calcolate
     struct OwnPps { uint64_t stamp; double trueErr; double t; };
     std::map<uint8_t, OwnPps> m_ownPps;        // per secondo (mod 256)
     int      m_lastPpsSec = -1;
@@ -203,6 +205,7 @@ private:
     std::mt19937_64 m_ppsRng{ 7 };
     void     OnPps();
     std::map<uint32_t, std::deque<std::pair<uint64_t, uint64_t>>> m_clockPairs;   // (tx mittente, rx mio - volo)
+    std::map<uint32_t, std::deque<double>> m_clockPairTimes;   // istante di ricezione di ogni coppia [s]
     std::map<uint32_t, int> m_lastPpsFrom;    // ultimo secondo di PPS elaborato per mittente
     std::vector<double> m_lastSharedTime;    // ultima volta che ho condiviso il range verso ciascun drone
     std::map<uint32_t, Eigen::Matrix3d> m_lastKnownGpsCov;   // covarianza GPS individuale dichiarata [m^2]
