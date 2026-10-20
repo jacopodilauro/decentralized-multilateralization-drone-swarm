@@ -323,6 +323,19 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         +0,20). La fusione elimina i droni anomali ma non l'errore di orientamento COMUNE a tutto lo sciame (seed 3,
         in parte 4): il limite finale e' l'orientamento dello sciame (bussola, GPS prima dell'attacco).
         Nuova colonna `reale_azimut_fusione_gradi` in `aperture_sweep.py`
+  - [x] Diagnosi della direzione peggiore con radio UWB a S = 2 (`tools/observer_diag.py`: forma, riflessione, rotazione,
+        pacchetti ricevuti e PPS anomali per osservatore). Seed 2, 3, 5: un osservatore per seed sbagliava di 76-147 gradi
+        (seed 2 oss. 5, seed 3 oss. 7, seed 5 oss. 6) con geometria buona (forma 0,18-0,28 m, nessuna riflessione,
+        98-99% dei pacchetti): l'ipotesi della geometria ruotata/specchiata e' smentita. CAUSA: la retta tra gli orologi
+        (9.1) usa le ultime 20 coppie tx/rx senza limite di eta'; con le perdite UWB verso droni lontani (ospiti in uscita,
+        160-173 s) la finestra arriva a ~17 s, oltre mezzo giro del contatore a 40 bit (2^40 x 15,65 ps = 17,2 s, TickDiff
+        in +-8,6 s): le coppie vecchie vengono lette con un giro sbagliato e la differenza di PPS sbaglia di 4-47 km.
+        Seed 2: 57 misure oltre 20 m su 29.295, 56 con finestra di 14,8-17,1 s; tutte le buone <= 8,6 s. Il Wi-Fi non perde
+        pacchetti (finestra ~1,9 s): per questo il problema c'e' solo con UWB. Tocca solo la localizzazione dello spoofer
+        (pps_log), non lo sciame. Oracolo con coppie <= 4 s: seed 2 oss. 5 -147 -> -6,0 gradi; seed 3 oss. 7 -146 -> -14,6;
+        seed 5 oss. 6 76 -> 0,0; nessun PPS anomalo negli osservatori base
+  - [ ] Correzione: finestra delle coppie limitata nel tempo + controllo di qualita' della retta; Wi-Fi identico;
+        campagna 5 seed Wi-Fi/UWB
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -362,3 +375,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-15 | strada A | fix sweep error handling | La campagna segnava "fatto" anche con simulazioni fallite (build vecchia): ora controllo iniziale, ERRORE per run, riepilogo |
 | 2026-10-15 | strada A | add swarm direction fusion | Fusione tra droni: direzione 0,34 gradi (mediana su 5 seed); limite residuo = orientamento comune |
 | 2026-10-15 | 3.1-3.2 | add uwb radio and loss-robust membership | Radio UWB opzionale; espulsioni a catena corrette; Wi-Fi identico |
+| 2026-10-20 | 9.1 (diagnosi) | add per-observer diagnosis tool | Direzione UWB a S = 2: causa = finestra della retta tra orologi oltre mezzo giro del contatore a 40 bit; geometria corretta |
