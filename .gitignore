@@ -5,3 +5,7 @@ build_warnings.txt
 __pycache__/
 *.pyc
 PAPER_NOTES.md
+*.svg
+*.csv
+*.xml
+*.png
