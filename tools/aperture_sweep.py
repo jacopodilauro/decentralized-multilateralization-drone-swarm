@@ -11,6 +11,9 @@ Per ogni run (con --spoof=1) calcola:
   - segnale di curvatura: differenze di distanza vere meno quelle di un'onda piana dalla stessa direzione
     (RMS tra droni, mediana per secondo): e' cio' che porta l'informazione sulla distanza;
   - errore di forma della geometria stimata dallo sciame sotto cattura (Kabsch, come metrics.py);
+  - rotazione del riferimento stimato attorno alla verticale (droni base, Kabsch per osservatore e per secondo):
+    mediana di |rotazione| sotto cattura, con gli ospiti (fino a 160 s) e dopo la loro uscita (da 180 s). L'errore di
+    direzione dello spoofer segue questa rotazione (PAPER_NOTES 4.19, 4.24);
   - per ogni osservatore base (ID < 8): stima dello spoofer con tutte le differenze di PPS dal consenso alla
     fine, in due varianti: REALE (geometria stimata + PPS e orologi UWB reali) e IDEALE (posizioni vere +
     PPS ideali). Errori di direzione (azimut) e di distanza; "determinata" se |errore di distanza| < 50% della
@@ -56,6 +59,32 @@ def curvature_and_aperture(g, s):
     return float(np.median(cur)), float(np.median(ap))
 
 
+def frame_rotation(cap):
+    """|rotazione| [gradi] del riferimento stimato da ogni osservatore base, solo droni base, per secondo."""
+    c = cap[(cap.observer_id < N_BASE) & (cap.sender_id < N_BASE)]
+    c = c.assign(sec=np.floor(c.time).astype(int)).sort_values("time")
+    last = c.groupby(["observer_id", "sec", "sender_id"]).last().reset_index()
+    rows = []
+    for (o, sec), g in last.groupby(["observer_id", "sec"]):
+        if len(g) < 4:
+            continue
+        E = g[["est_x", "est_y", "est_z"]].values
+        T = g[["true_x", "true_y", "true_z"]].values
+        A, B = E - E.mean(axis=0), T - T.mean(axis=0)
+        U, _, Vt = np.linalg.svd(A.T @ B)
+        R = U @ np.diag([1.0, 1.0, np.sign(np.linalg.det(U @ Vt))]) @ Vt
+        rows.append((sec, abs(np.degrees(np.arctan2(R[0, 1], R[0, 0])))))
+    if not rows:
+        return {}
+    r = pd.DataFrame(rows, columns=["sec", "rot"])
+    out = {"rotazione_mediana_gradi": float(r.rot.median()), "rotazione_p95_gradi": float(r.rot.quantile(0.95))}
+    if (r.sec < 160).any():
+        out["rotazione_con_ospiti_gradi"] = float(r[r.sec < 160].rot.median())
+    if (r.sec >= 180).any():
+        out["rotazione_dopo_ospiti_gradi"] = float(r[r.sec >= 180].rot.median())
+    return out
+
+
 def observer_table(pl, d, obs):
     p = pl[pl.observer == obs]
     o = d[(d.observer_id == obs) & (d.capture_consensus == 1)]
@@ -89,6 +118,7 @@ def analyse_one(rundir):
     sh = _shape_stats(cap)
     shape = float(np.median([x[0] for x in sh])) if sh else float("nan")
     res = {"run": rundir, "S": S, "R_m": R, "apertura_m": ap, "curvatura_m": cur, "forma_m": shape}
+    res.update(frame_rotation(cap))
     per = {"reale": [], "ideale": []}
     for obs in range(N_BASE):
         m = observer_table(pl, d, obs)
@@ -118,7 +148,7 @@ def analyse_one(rundir):
 def plot(csv, png):
     r = pd.read_csv(csv)
     cols = ["S", "R_m", "apertura_m", "curvatura_m", "forma_m", "reale_azimut_mediano_gradi", "reale_azimut_max_gradi",
-            "reale_azimut_fusione_gradi",
+            "reale_azimut_fusione_gradi", "rotazione_mediana_gradi",
             "reale_distanza_mediana_m", "reale_distanza_determinata_pct", "ideale_distanza_mediana_m"]
     r = r.assign(R_m=(r.R_m / 50).round() * 50)   # distanze nominali (il centro pre-cattura varia di pochi m)
     cols = [c for c in cols if c in r.columns]

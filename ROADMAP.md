@@ -344,7 +344,18 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         Direzione (mediana / peggiore sugli 8 osservatori): seed 1 1,43 / 10,2 -> 0,67 / 5,6 gradi; seed 2 -> 4,74 / 6,8;
         seed 3 -> 8,45 / 14,8; seed 5 -> 1,12 / 1,5. Residuo del seed 2 (e 3): errore di orientamento COMUNE (tutti dallo
         stesso lato, segue la rotazione del riferimento stimato, 4.19), non un drone anomalo
-  - [ ] Campagna 5 seed Wi-Fi/UWB (S = 1-2, R = 250/500/1000) dopo la correzione
+  - [x] Campagna 5 seed Wi-Fi/UWB dopo la correzione (PAPER_NOTES 4.23): osservatori anomali spariti; a S = 2 la direzione
+        in UWB resta ~2x il Wi-Fi (3,0-3,3 contro 1,4-1,6 gradi), errore comune a tutti gli osservatori. Oracolo seed 2:
+        UWB senza perdite (`--uwbSensDbm=-130`) = Wi-Fi -> causa: perdite di pacchetti
+  - [x] Diagnosi (seed 2, S = 2, R = 500 m): la rotazione del riferimento stimato (droni base) ha lo STESSO andamento nel
+        tempo con e senza perdite (non e' caso: errore sistematico legato al moto, fino a 10 gradi anche senza perdite);
+        le perdite lo amplificano (con gli ospiti 5,03 contro 2,61 gradi; dopo 9,32 contro 5,98). Gli osservatori base
+        ricevono il 98-99% dei pacchetti. Oracoli su chi perde: solo gli ospiti 4,10, solo i base 3,71: contributi quasi
+        additivi (+1,49 +1,10 contro +2,42), nessun colpevole unico. L'orientamento sotto cattura e' debolmente vincolato
+        (le distanze non lo vedono, lo ancorano solo le velocita' di bordo dell'8.2c): ogni informazione persa pesa.
+        `aperture_sweep.py` registra ora la rotazione del riferimento (mediana, p95, con/dopo gli ospiti)
+  - [ ] Campagna 10 seed a S = 2, R = 500 m: Wi-Fi, UWB, UWB senza perdite (rotazione e direzione appaiate per seed);
+        poi decidere: limite da dichiarare o ancoraggio dell'orientamento (es. rotta dalla bussola di bordo)
 - [ ] **Fase 10 – Campagna di esperimenti** per le figure del paper
 
 ## Diario
@@ -386,3 +397,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-15 | 3.1-3.2 | add uwb radio and loss-robust membership | Radio UWB opzionale; espulsioni a catena corrette; Wi-Fi identico |
 | 2026-10-20 | 9.1 (diagnosi) | add per-observer diagnosis tool | Direzione UWB a S = 2: causa = finestra della retta tra orologi oltre mezzo giro del contatore a 40 bit; geometria corretta |
 | 2026-10-20 | 9.1b | limit the clock fit window | Misure PPS da km eliminate con radio UWB; Wi-Fi e CSV dello sciame identici |
+| 2026-10-21 | 9.1c (diagnosi) | log frame rotation in the aperture sweep | Direzione UWB a S = 2: rotazione del riferimento amplificata dalle perdite, stesso andamento senza perdite |
