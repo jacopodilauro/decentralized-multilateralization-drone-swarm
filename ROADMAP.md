@@ -4,6 +4,25 @@ Branch di lavoro: `feature/realistic-simulator` · Stato di partenza: tag `v0-ba
 
 > Se apri una nuova conversazione con Claude, incolla questo file: contiene tutto il contesto.
 
+## Stato in una pagina (21/10/2026)
+
+| Blocco | Cosa simula | Stato |
+|---|---|---|
+| Sciame e ranging | TDMA, DS-TWR con orologi realistici, EKF cooperativo con compensazione del ritardo | finito |
+| Radio | Wi-Fi (default, tutti ricevono) oppure `--radio=uwb` (perdite con la distanza) | finito |
+| GPS | ricevitore realistico (default), test chi-quadro, consenso a quorum | finito |
+| Spoofer | antenna a terra che cattura tutti i droni (`--spoof=1`) | finito |
+| Rilevamento della cattura | consenso, localizzazione solo UWB sotto attacco, sensori di bordo | finito |
+| Localizzazione dello spoofer | PPS + sincronizzazione UWB, formazione allargabile (`--formationScale`) | finito (9.1b) |
+| Errore UWB realistico | `--uwbError=real`: NLOS correlato, rumore con la distanza, riconoscimento NLOS imperfetto | finito (5.1) |
+
+Per chiudere il simulatore (poi solo correzioni di bug):
+1. [x] Fase 5 (5.1)
+2. [ ] Sensori di bordo: parametri con fonti (la direzione dello spoofer dipende dai loro errori lenti, PAPER_NOTES 4.25)
+3. [ ] Configurazione del paper: script unico (UWB, S = 2, spoofer) e numeri di riferimento
+4. [ ] Punti aperti minori: `setSpeed`/`setScenary` ignorati, falsi allarmi residui (correggere o dichiarare)
+5. [ ] Verifica finale e tag `v1-paper`
+
 ## Obiettivo
 
 1. Rendere il simulatore ns-3 privo di bug e il più fedele possibile alla realtà.
@@ -176,12 +195,26 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
         LOS errore medio 0,03 cm, dev. std 7,1 cm. Su 3 seed rispetto al 2.6: errore base p95 1,01 ->
         0,77 m, falsi allarmi collettivi pre-attacco 0,19% -> 0,034%, rilevamento invariato, risultati
         non piu' dipendenti dagli orologi del seed
-  - [ ] Il bit LOS dei timestamp e' ideale (viene dal canale): un rilevatore NLOS reale sbaglia a volte
+  - [x] Il bit LOS dei timestamp e' ideale: con `--uwbError=real` il rilevatore NLOS sbaglia (5.1)
   - [ ] Scalabilita': il pacchetto cresce di 8 byte per vicino; con sciami grandi limitare a k vicini
   - [ ] Falsi allarmi residui (4.3): ospite 19 nel seed 1, drone base 3 nel seed 3 (episodi brevi)
   - [ ] Offset tra gli orologi dai timestamp DS-TWR (servono per localizzare lo spoofer)
   - [ ] Su droni reali: collegare orologio GNSS e orologio UWB (impulso PPS registrato dal chip UWB)
-- [ ] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
+- [x] **Fase 5 – Errore UWB realistico** (LOS/NLOS correlato nello spazio e nel tempo)
+  - [x] 5.1 `UwbError.h` + `UWBChannel` (opzione `--uwbError=real`, default `legacy` identico byte per byte, verificato in
+        default e in UWB S = 2 con spoofer, pps_log compreso). Stato LOS per collegamento NON orientato (uguale nei due
+        versi) dalla procedura di consistenza spaziale di 3GPP TR 38.901 (7.6.3.1, 7.6.3.3): variabile gaussiana funzione
+        dello spostamento dei due estremi (nodi ogni corrDist/0,905 m interpolati: correlazione 1/e a `--uwbCorrDist`,
+        default 10 m), LOS se Phi(x) < P_LOS(d) = exp(-d/500) (frazione NLOS storica, cambia solo la memoria). Processo
+        continuo: un Gauss-Markov del primo ordine dava episodi che dipendevano dalla frequenza dei pacchetti (3,7 m di
+        spostamento campionando ogni metro, 0,4 m ogni cm), quello a nodi ~11 m qualunque sia il passo. Bias NLOS fisso per
+        episodio (U(0,3; 2,5) m, storico). Rumore per messaggio sigma^2 = 0,10^2 + 0,25^2 10^(-margine/10) (margine dal
+        bilancio della Fase 3; il secondo termine ~ 1/SNR). Riconoscimento: falsi NLOS 5% per messaggio, episodi NLOS
+        non rilevati per intero 10%. Varianza ai filtri dal bit DICHIARATO e dalla distanza misurata (NLOS: secondo momento
+        del bias). Log diagnostico `--uwbLog=1` (uwb_log.csv) e `tools/uwb_error_view.py`. Test `test_channel` [5]-[11].
+        Seed 1, UWB, S = 2, spoofer: NLOS 7,4% dei messaggi, episodi 2,3 s, falsi NLOS 5,0%, rumore LOS 7,3 cm (0-15 m)
+        -> 18,8 cm (90-105 m); forma 0,201 -> 0,302 m; consenso sulla cattura invariato (20/20). Direzione e distanza:
+        dominate dalla deriva dei sensori di bordo (4.25), servono 10 seed. Parametri = IPOTESI (PAPER_NOTES 4.26)
 - [ ] **Fase 6 – Ricevitore GNSS** (satelliti, pseudodistanze, minimi quadrati per posizione e clock bias)
   - [x] 6.1 `GnssModel.h`: costellazione condivisa (errore comune per satellite, Gauss-Markov 1,5 m / 600 s),
         ricevitore per drone (multipath 0,4 m / 10 s, codice 0,2 m, orologio +-1 ms e +-0,5 ppm), minimi
@@ -398,3 +431,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-20 | 9.1 (diagnosi) | add per-observer diagnosis tool | Direzione UWB a S = 2: causa = finestra della retta tra orologi oltre mezzo giro del contatore a 40 bit; geometria corretta |
 | 2026-10-20 | 9.1b | limit the clock fit window | Misure PPS da km eliminate con radio UWB; Wi-Fi e CSV dello sciame identici |
 | 2026-10-21 | 9.1c (diagnosi) | log frame rotation in the aperture sweep | Direzione UWB a S = 2: rotazione del riferimento amplificata dalle perdite, stesso andamento senza perdite |
+| 2026-10-21 | 5.1 | add realistic uwb ranging error | Opzione `--uwbError=real`; default identico; forma +50% a S = 2 (seed 1) |

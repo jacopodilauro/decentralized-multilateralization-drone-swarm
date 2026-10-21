@@ -124,6 +124,17 @@ int main(int argc, char *argv[])
     uwblink::Params linkP;
     cmd.AddValue("radio",      "Radio: wifi (storica, tutti ricevono tutto) | uwb (perdite in funzione della distanza)", radio);
     cmd.AddValue("uwbSensDbm", "Radio UWB: sensibilita' del ricevitore [dBm] (-100 ~85 m al 50%; -90 ~23 m)", linkP.sensDbm);
+    std::string uwbError = "legacy";
+    uwberr::Params errP;
+    bool uwbLog = false;
+    cmd.AddValue("uwbError",      "Errore UWB: legacy (stati LOS indipendenti a ogni messaggio, bit LOS ideale) | real (Fase 5)", uwbError);
+    cmd.AddValue("uwbLosDist",    "Errore UWB real: P_LOS(d) = exp(-d / uwbLosDist) [m]", errP.losDist);
+    cmd.AddValue("uwbCorrDist",   "Errore UWB real: distanza di correlazione dello stato LOS [m] (0 = indipendente)", errP.corrDist);
+    cmd.AddValue("uwbSigmaFloor", "Errore UWB real: rumore per messaggio con segnale forte [m]", errP.sigmaFloor);
+    cmd.AddValue("uwbSigmaEdge",  "Errore UWB real: rumore aggiuntivo per messaggio a margine 0 dB [m] (0 = costante)", errP.sigmaEdge);
+    cmd.AddValue("uwbPmiss",      "Errore UWB real: probabilita' che un episodio NLOS non sia rilevato", errP.pMiss);
+    cmd.AddValue("uwbPfa",        "Errore UWB real: probabilita' che un messaggio LOS sia dichiarato NLOS", errP.pFa);
+    cmd.AddValue("uwbLog",        "Log di ogni DS-TWR in uwb_log.csv (verita', misura, stato vero e dichiarato)", uwbLog);
     double formationScale = 1.0;
     cmd.AddValue("formationScale", "Strada A: scala della formazione (distanze x S, velocita' lineari invariate)", formationScale);
     cmd.Parse(argc, argv);
@@ -150,6 +161,14 @@ int main(int argc, char *argv[])
     if (radio == "uwb")
         std::cout << ">>> Radio UWB: EIRP " << uwblink::TxEirpDbm(linkP) << " dBm, sensibilita' " << linkP.sensDbm
                   << " dBm, ricezione al 50% a " << uwblink::Range50(linkP) << " m" << std::endl;
+    if (uwbError != "legacy" && uwbError != "real") { std::cerr << "--uwbError deve essere legacy oppure real" << std::endl; return 1; }
+    errP.on = (uwbError == "real");
+    errP.link = linkP;
+    if (errP.on)
+        std::cout << ">>> Errore UWB realistico: P_LOS = exp(-d/" << errP.losDist << "), correlazione " << errP.corrDist
+                  << " m, rumore " << errP.sigmaFloor << " + " << errP.sigmaEdge << " m a margine 0 dB (sensibilita' "
+                  << errP.link.sensDbm << " dBm), NLOS non rilevati " << errP.pMiss << ", falsi NLOS " << errP.pFa << std::endl;
+    if (uwbLog) UwbSecurityApp::SetUwbLog("uwb_log.csv");
     if (formationScale <= 0.0) { std::cerr << "--formationScale deve essere positivo" << std::endl; return 1; }
     SetFormationScale(formationScale);
     if (formationScale != 1.0) std::cout << ">>> Formazione scalata: S=" << formationScale << std::endl;
@@ -199,6 +218,7 @@ int main(int argc, char *argv[])
 
     Ptr<UWBChannel> channel = CreateObject<UWBChannel>();
     channel->SetEnvironment("outdoor");
+    channel->SetErrorModel(errP);
 
     NodeContainer swarmNodes;
     swarmNodes.Create(totalNodes);
@@ -310,6 +330,7 @@ int main(int argc, char *argv[])
     Simulator::Run();
     UwbSecurityApp::PrintLinkStats();
     UwbSecurityApp::PrintPpsStats();
+    channel->PrintErrorStats();
     Simulator::Destroy();
     if (anim) {
         delete anim;

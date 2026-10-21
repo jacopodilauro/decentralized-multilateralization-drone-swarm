@@ -81,9 +81,18 @@ void UwbSecurityApp::SetPps(double sawtoothNs, double noiseNs, const std::string
 }
 imu::Params UwbSecurityApp::s_imuParams;
 
-// Varianza dell'errore di un DS-TWR dal modello di canale: LOS N(0, 0.10) per messaggio (~7 cm sul DS-TWR,
-// 0.01 con margine); NLOS: un messaggio con U(0.3, 2.5) + N(0, 0.5), pesato ~1/4-1/2 -> ~0.33 m^2
-static double DsTwrVar(bool los) { return los ? 0.01 : 0.36; }
+// Varianza dell'errore di un DS-TWR dal modello di canale. Storico: LOS N(0, 0.10) per messaggio (~7 cm sul
+// DS-TWR, 0.01 con margine); NLOS: un messaggio con U(0.3, 2.5) + N(0, 0.5), pesato ~1/4-1/2 -> ~0.33 m^2.
+// Fase 5 (--uwbError=real): dal bit LOS dichiarato e dalla distanza misurata (UwbError.h)
+double UwbSecurityApp::DsTwrVar(bool los, double range) const {
+    const uwberr::Params& p = m_channel->GetErrorModel();
+    return p.on ? uwberr::DsTwrVar(p, los, range) : (los ? 0.01 : 0.36);
+}
+std::ofstream UwbSecurityApp::s_uwbLog;
+void UwbSecurityApp::SetUwbLog(const std::string& path) {
+    s_uwbLog.open(path);
+    s_uwbLog << "time,observer,sender,d_true_m,d_meas_m,nlos_true,los_flag\n" << std::fixed << std::setprecision(4);
+}
 
 // Covarianza dell'errore GPS individuale: piena (dal pacchetto) o diagonale isotropa in orizzontale,
 // diag(h^2, h^2, v^2) con h^2 = media di E e N (equivale ad hAcc/vAcc, usata dal modello "fixed")
@@ -700,7 +709,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     bool   haveDirect   = false;
     double directTime   = currentTime;
     Eigen::Vector3d directAnchor(0, 0, 0);   // DS-TWR: mio GPS al messaggio centrale (vedi sotto)
-    bool   directLos    = cond.is_los;
+    bool   directLos    = cond.los_flag;   // stato dichiarato dal mio rivelatore NLOS (storico: quello vero)
 
     if (!s_rangingDsTwr) {
         myMeasuredRange = (measuredToa - txTimeSec) * c;   // ToA a una via
@@ -708,7 +717,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     } else {
         // Il timestamp di ricezione lo produce il mio orologio UWB all'istante vero di arrivo
         uint64_t rxStamp = m_uwbClock.Stamp(trueGlobalRxTime, m_clockRng);
-        RxRec cur{ header.GetSeq(), header.GetUwbTxStamp(), rxStamp, trueGlobalTxTime, trueGlobalRxTime, cond.is_los };
+        RxRec cur{ header.GetSeq(), header.GetUwbTxStamp(), rxStamp, trueGlobalTxTime, trueGlobalRxTime, cond.los_flag, cond.is_los };
         auto prevIt = m_lastRx.find(senderId);
         if (prevIt != m_lastRx.end()) {
             const RxRec& prev = prevIt->second;
@@ -728,6 +737,14 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
                     directTime   = mine.tGlobal;   // al primo ordine e' la distanza al messaggio centrale
                     directAnchor = mine.gps;
                     directLos    = prev.los && cur.los && rep.los;   // LOS solo se tutte e tre le ricezioni lo sono
+                    if (s_uwbLog.is_open()) {   // diagnostica (Fase 5): distanza vera al messaggio centrale
+                        double back = currentTime - mine.tGlobal;
+                        auto v = [](Ptr<MobilityModel> m) { ns3::Vector u = m->GetVelocity(); return Eigen::Vector3d(u.x, u.y, u.z); };
+                        double dTrue = ((myTruePos - v(myMobility) * back) - (senderTruePos - v(senderMobility) * back)).norm();
+                        bool nlosTrue = !(prev.losTrue && cur.losTrue && m_channel->LastTrueLos(m_id, senderId));
+                        s_uwbLog << currentTime << ',' << m_id << ',' << senderId << ',' << dTrue << ',' << r << ','
+                                 << nlosTrue << ',' << directLos << '\n';
+                    }
                 }
                 break;
             }
@@ -819,7 +836,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         myData.toa          = measuredToa;
         myData.tx_timestamp = txTimeSec;
         myData.is_direct    = true;
-        myData.is_los       = cond.is_los;
+        myData.is_los       = cond.los_flag;
         inputData.push_back(myData);
     } else if (haveDirect) {
         EKF::Msmnt myData;
@@ -831,11 +848,11 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         myData.is_los       = directLos;
         if (m_gnss && s_anchorModel > 0) {   // l'ancora sono io: la mia accuratezza GPS
             myData.anchor_cov = m_lastGnssFix.covInd;
-            myData.uwb_var    = DsTwrVar(directLos);
+            myData.uwb_var    = DsTwrVar(directLos, myMeasuredRange);
         }
         if (m_relMode) {   // sotto cattura: la mia posizione stimata al messaggio centrale, non il mio GPS
             myData.anchor_pos = SelfAt(directTime, &myData.anchor_cov);
-            myData.uwb_var    = DsTwrVar(directLos);
+            myData.uwb_var    = DsTwrVar(directLos, myMeasuredRange);
         }
         inputData.push_back(myData);
     }
@@ -883,7 +900,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         peerData.range         = m_networkRanges[k][senderId];
         peerData.is_los        = m_networkRangesLos.count(k) ? (m_networkRangesLos[k].count(senderId) ? m_networkRangesLos[k][senderId] : true) : true;
         if (m_gnss && s_anchorModel > 0) {
-            peerData.uwb_var = DsTwrVar(peerData.is_los);
+            peerData.uwb_var = DsTwrVar(peerData.is_los, peerData.range);
             if (m_lastKnownGpsCov.count(k)) peerData.anchor_cov = m_lastKnownGpsCov[k];
         }
         if (m_relMode) {   // sotto cattura: ancora = mia stima di k all'istante della misura (non il suo GPS)
@@ -891,7 +908,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
             if (ek == m_ekfBank.end()) continue;
             peerData.anchor_pos = ek->second.GetPosition() + ek->second.GetVelocity() * (tMeas - m_lastCalcTime[k]);
             peerData.anchor_cov = ek->second.GetPositionCovariance();
-            peerData.uwb_var    = DsTwrVar(peerData.is_los);
+            peerData.uwb_var    = DsTwrVar(peerData.is_los, peerData.range);
         }
         inputData.push_back(peerData);
     }
@@ -922,7 +939,7 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         me.is_direct  = true;
         me.clock_bias = false;
         me.is_los     = directLos;
-        me.uwb_var    = DsTwrVar(directLos);
+        me.uwb_var    = DsTwrVar(directLos, myMeasuredRange);
         m_selfEkf.Update({ me });
     }
 

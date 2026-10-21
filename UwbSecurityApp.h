@@ -68,6 +68,8 @@ public:
     // (~0,5 ms a 6,8 Mbit/s con preambolo) non conta; qui si decide solo SE il pacchetto arriva
     static void SetUwbRadio(bool on, const uwblink::Params& p) { s_uwbRadio = on; s_linkParams = p; }
     static void PrintLinkStats();
+    // Fase 5: log di ogni DS-TWR (distanza vera al messaggio centrale, misurata, stato vero e dichiarato)
+    static void SetUwbLog(const std::string& path);
     // PPS del ricevitore GNSS (9.1): dente di sega uniforme +-sawtooth (quantizzazione, compensabile con qErr) +
     // rumore gaussiano residuo; log delle differenze di PPS per osservatore (pps_log.csv)
     static void SetPps(double sawtoothNs, double noiseNs, const std::string& logPath);
@@ -198,6 +200,8 @@ private:
     static double s_ppsSawtoothS, s_ppsNoiseS;
     static std::ofstream s_ppsLog;
     static uint64_t s_ppsRejected[3];   // [1] differenze di PPS scartate per residuo della retta, [2] calcolate
+    static std::ofstream s_uwbLog;
+    double DsTwrVar(bool los, double range) const;
     struct OwnPps { uint64_t stamp; double trueErr; double t; };
     std::map<uint8_t, OwnPps> m_ownPps;        // per secondo (mod 256)
     int      m_lastPpsSec = -1;
@@ -250,7 +254,7 @@ private:
     uint8_t         m_txSeq = 0;
     struct TxRec { uint64_t stamp; double tGlobal; Eigen::Vector3d gps; };
     std::map<uint8_t, TxRec> m_txHistory;            // mie trasmissioni recenti, per numero di sequenza
-    struct RxRec { uint8_t seq; uint64_t txStamp; uint64_t rxStamp; double txGlobal; double rxGlobal; bool los; };
+    struct RxRec { uint8_t seq; uint64_t txStamp; uint64_t rxStamp; double txGlobal; double rxGlobal; bool los; bool losTrue; };
     std::map<uint32_t, RxRec> m_lastRx;              // ultimo pacchetto ricevuto da ciascun vicino
 
     std::map<uint32_t, bool> m_collectiveAlarm;   // mio allarme collettivo su ciascun drone
