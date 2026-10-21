@@ -18,7 +18,11 @@ Branch di lavoro: `feature/realistic-simulator` · Stato di partenza: tag `v0-ba
 
 Per chiudere il simulatore (poi solo correzioni di bug):
 1. [x] Fase 5 (5.1)
-2. [ ] Sensori di bordo: parametri con fonti (la direzione dello spoofer dipende dai loro errori lenti, PAPER_NOTES 4.25)
+2. [ ] Sensori di bordo: parametri con fonti (la direzione dello spoofer dipende dai loro errori lenti, PAPER_NOTES 4.25).
+   Trovato (seed 9, 4.28): dopo l'uscita degli ospiti il riferimento stimato ruota senza fermarsi (~1,4 gradi/s, fino a
+   77-99 gradi a 230 s) con forma buona: senza ospiti la formazione base ruota rigidamente e l'orientamento e' quasi
+   libero. Da dimostrare e correggere o dichiarare. `aperture_sweep.py`: direzione anche sulle finestre iniziali
+   (10/20/40 s; seed 9: 6,9 -> 4,8-5,7 gradi, miglioramento parziale)
 3. [ ] Configurazione del paper: script unico (UWB, S = 2, spoofer) e numeri di riferimento
 4. [ ] Punti aperti minori: `setSpeed`/`setScenary` ignorati, falsi allarmi residui (correggere o dichiarare)
 5. [ ] Verifica finale e tag `v1-paper`
@@ -432,3 +436,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-20 | 9.1b | limit the clock fit window | Misure PPS da km eliminate con radio UWB; Wi-Fi e CSV dello sciame identici |
 | 2026-10-21 | 9.1c (diagnosi) | log frame rotation in the aperture sweep | Direzione UWB a S = 2: rotazione del riferimento amplificata dalle perdite, stesso andamento senza perdite |
 | 2026-10-21 | 5.1 | add realistic uwb ranging error | Opzione `--uwbError=real`; default identico; forma +50% a S = 2 (seed 1) |
+| 2026-10-21 | 9.1d (analisi) | add early-window direction to the aperture sweep | Seed 9: rotazione in fuga dopo l'uscita degli ospiti; finestra iniziale aiuta solo in parte |

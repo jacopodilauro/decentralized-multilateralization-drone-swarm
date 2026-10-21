@@ -18,6 +18,8 @@ Per ogni run (con --spoof=1) calcola:
     fine, in due varianti: REALE (geometria stimata + PPS e orologi UWB reali) e IDEALE (posizioni vere +
     PPS ideali). Errori di direzione (azimut) e di distanza; "determinata" se |errore di distanza| < 50% della
     distanza vera; "fusione" = mediana delle direzioni dei droni base (stima dello sciame).
+  - finestre iniziali (colonne *_W10, *_W20, *_W40): stessa stima usando solo i primi W secondi di misure dopo la
+    cattura, quando la deriva dei sensori di bordo non si e' ancora accumulata (PAPER_NOTES 4.25, 4.28).
 Regola fisica attesa: la distanza e' osservabile quando la curvatura (~ (a/2)^2 / 2R) supera l'errore di forma.
 """
 import argparse, os, re, sys
@@ -85,6 +87,9 @@ def frame_rotation(cap):
     return out
 
 
+WINDOWS = (10, 20, 40)   # finestre iniziali [s] per la direzione dello spoofer
+
+
 def observer_table(pl, d, obs):
     p = pl[pl.observer == obs]
     o = d[(d.observer_id == obs) & (d.capture_consensus == 1)]
@@ -131,6 +136,30 @@ def analyse_one(rundir):
         for name, P, dd in (("reale", E, m.d_meas_m.values), ("ideale", T, m.d_ideal_m.values)):
             az, el, dr = errors(solve_tdoa_epochs(P, dd, ep), c, s_true)
             per[name].append((abs(az), abs(dr), az))
+    # finestre iniziali: solo i primi W secondi di misure PPS dopo la cattura; centro vero alla fine della finestra
+    win = {W: {"reale": [], "ideale": []} for W in WINDOWS}
+    for obs in range(N_BASE):
+        m = observer_table(pl, d, obs)
+        if m is None or m.sec.nunique() < 10:
+            continue
+        for W in WINDOWS:
+            mw = m[m.sec < m.sec.min() + W]
+            if mw.sec.nunique() < 5:
+                continue
+            ep = mw.sec.values
+            c = mw[["true_x", "true_y", "true_z"]].values[ep > ep.max() - 5].mean(axis=0)
+            for name, P, dd in (("reale", mw[["est_x", "est_y", "est_z"]].values, mw.d_meas_m.values),
+                                ("ideale", mw[["true_x", "true_y", "true_z"]].values, mw.d_ideal_m.values)):
+                az, el, dr = errors(solve_tdoa_epochs(P, dd, ep), c, s_true)
+                win[W][name].append((abs(az), abs(dr), az))
+    for W, per_w in win.items():
+        for name, v in per_w.items():
+            if v:
+                a = np.array(v)
+                res[f"{name}_azimut_mediano_W{W}_gradi"] = float(np.median(a[:, 0]))
+                res[f"{name}_azimut_max_W{W}_gradi"] = float(np.max(a[:, 0]))
+                res[f"{name}_azimut_fusione_W{W}_gradi"] = float(abs(np.median(a[:, 2])))
+                res[f"{name}_distanza_mediana_W{W}_m"] = float(np.median(a[:, 1]))
     for name, v in per.items():
         if v:
             a = np.array(v)
@@ -148,7 +177,7 @@ def analyse_one(rundir):
 def plot(csv, png):
     r = pd.read_csv(csv)
     cols = ["S", "R_m", "apertura_m", "curvatura_m", "forma_m", "reale_azimut_mediano_gradi", "reale_azimut_max_gradi",
-            "reale_azimut_fusione_gradi", "rotazione_mediana_gradi",
+            "reale_azimut_fusione_gradi", "reale_azimut_fusione_W20_gradi", "rotazione_mediana_gradi",
             "reale_distanza_mediana_m", "reale_distanza_determinata_pct", "ideale_distanza_mediana_m"]
     r = r.assign(R_m=(r.R_m / 50).round() * 50)   # distanze nominali (il centro pre-cattura varia di pochi m)
     cols = [c for c in cols if c in r.columns]
