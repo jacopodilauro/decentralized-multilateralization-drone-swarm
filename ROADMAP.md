@@ -23,7 +23,11 @@ Per chiudere il simulatore (poi solo correzioni di bug):
    77-99 gradi a 230 s) con forma buona: senza ospiti la formazione base ruota rigidamente e l'orientamento e' quasi
    libero. Da dimostrare e correggere o dichiarare. `aperture_sweep.py`: direzione anche sulle finestre iniziali
    (10/20/40 s; seed 9: 6,9 -> 4,8-5,7 gradi, miglioramento parziale)
-3. [ ] Configurazione del paper: script unico (UWB, S = 2, spoofer) e numeri di riferimento. Scenario della PROVA
+3. [x] Configurazione del paper: `tools/paper_campaign.py` (tre esperimenti: attaccanti interni, spoofer esterno,
+   misto; profili prova/rapido/completo, riprendibile, run economiche per prime) e `tools/paper_report.py` (tabelle,
+   figure con scale confrontabili, spiegazioni calcolate dai dati). Nuove opzioni (default identico byte per byte):
+   `--formation=shell` (guscio sferico, 12 m dal vicino per ogni N), `--insiderSpread`, `--mixed` (PAPER_NOTES 4.33).
+   Prima versione: Scenario della PROVA
    REALE (7-10 droni piccoli, vicini, spoofer vicino): `--setnGuests=0` (8 droni base) con `--formationScale` 0,5-1 e
    `--spoofDist` 25-200 (PAPER_NOTES 4.30). Limite trovato: con distanze tra droni <= ~10 m (S = 0,5) la cattura non
    viene rilevata (coppie sotto la soglia di 4 sigma); con S = 1 (10-20 m) si'. Corretti nell'analisi: partenze del
@@ -442,3 +446,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-21 | 5.1 | add realistic uwb ranging error | Opzione `--uwbError=real`; default identico; forma +50% a S = 2 (seed 1) |
 | 2026-10-21 | 9.1d (analisi) | add early-window direction to the aperture sweep | Seed 9: rotazione in fuga dopo l'uscita degli ospiti; finestra iniziale aiuta solo in parte |
 | 2026-10-21 | 9.1e (analisi) | fix the tdoa solver for nearby spoofers | Spoofer a 50 m: ideale da 19,9 km a 5,5 m; spoofer lontani identici |
+| 2026-10-21 | 10.1 | add the paper campaign | Guscio sferico, attaccanti multipli, scenario misto; limite N >= k + 5 con attaccanti interni |

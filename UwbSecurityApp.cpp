@@ -206,6 +206,10 @@ void UwbSecurityApp::SetMalicious(bool isMalicious) {
     m_isMalicious = isMalicious;
 }
 bool UwbSecurityApp::IsMalicious() const { return m_isMalicious; }
+uint32_t UwbSecurityApp::s_maxPktBytes = 0;
+void UwbSecurityApp::PrintPacketStats() {
+    std::cout << ">>> Pacchetti: dimensione massima " << s_maxPktBytes << " byte" << std::endl;
+}
 
 void UwbSecurityApp::StartApplication() {
     if (!m_socket) {
@@ -408,6 +412,7 @@ void UwbSecurityApp::SendUwbMessage() {
     Ptr<Packet> packet = Create<Packet>();
     packet->AddHeader(header);
 
+    s_maxPktBytes = std::max<uint32_t>(s_maxPktBytes, packet->GetSize());
     m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
 
     if (m_pendingLeave) {
@@ -1206,7 +1211,8 @@ Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
         const double RAMP_DURATION = 10.0; 
         double elapsed  = Simulator::Now().GetSeconds() - m_attackStartTime;
         double progress = std::min(1.0, std::max(0.0, elapsed / RAMP_DURATION));
-        gps.y() += TARGET_OFFSET * progress;
+        gps.x() += TARGET_OFFSET * progress * m_attackDirX;   // storico: m_attackDirX = 0, m_attackDirY = 1
+        gps.y() += TARGET_OFFSET * progress * m_attackDirY;
     }
     return gps;
 }

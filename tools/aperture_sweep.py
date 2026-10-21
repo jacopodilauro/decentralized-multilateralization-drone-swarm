@@ -61,9 +61,22 @@ def curvature_and_aperture(g, s):
     return float(np.median(cur)), float(np.median(ap))
 
 
-def frame_rotation(cap):
+def n_base_from_stdout(path):
+    """Numero di droni base dalla riga '>>> Sciame: N droni base' (simulazioni recenti); altrimenti 8 (storico)."""
+    try:
+        with open(path) as fh:
+            for line in fh:
+                m = re.search(r">>> Sciame: (\d+) droni base", line)
+                if m:
+                    return int(m.group(1))
+    except OSError:
+        pass
+    return N_BASE
+
+
+def frame_rotation(cap, n_base=N_BASE):
     """|rotazione| [gradi] del riferimento stimato da ogni osservatore base, solo droni base, per secondo."""
-    c = cap[(cap.observer_id < N_BASE) & (cap.sender_id < N_BASE)]
+    c = cap[(cap.observer_id < n_base) & (cap.sender_id < n_base)]
     c = c.assign(sec=np.floor(c.time).astype(int)).sort_values("time")
     last = c.groupby(["observer_id", "sec", "sender_id"]).last().reset_index()
     rows = []
@@ -111,6 +124,7 @@ def observer_table(pl, d, obs):
 def analyse_one(rundir):
     s_true, t0 = antenna_from_stdout(os.path.join(rundir, "stdout.txt"))
     S = scale_from_stdout(os.path.join(rundir, "stdout.txt"))
+    nb = n_base_from_stdout(os.path.join(rundir, "stdout.txt"))
     g = pd.read_csv(os.path.join(rundir, "gnss_log.csv"))
     pl = pd.read_csv(os.path.join(rundir, "pps_log.csv"))
     d = pd.read_csv(os.path.join(rundir, "tdma_security_log.csv"),
@@ -123,9 +137,10 @@ def analyse_one(rundir):
     sh = _shape_stats(cap)
     shape = float(np.median([x[0] for x in sh])) if sh else float("nan")
     res = {"run": rundir, "S": S, "R_m": R, "apertura_m": ap, "curvatura_m": cur, "forma_m": shape}
-    res.update(frame_rotation(cap))
+    res["droni_base"] = nb
+    res.update(frame_rotation(cap, nb))
     per = {"reale": [], "ideale": []}
-    for obs in range(N_BASE):
+    for obs in range(nb):
         m = observer_table(pl, d, obs)
         if m is None or m.sec.nunique() < 10:
             continue
@@ -138,7 +153,7 @@ def analyse_one(rundir):
             per[name].append((abs(az), abs(dr), az))
     # finestre iniziali: solo i primi W secondi di misure PPS dopo la cattura; centro vero alla fine della finestra
     win = {W: {"reale": [], "ideale": []} for W in WINDOWS}
-    for obs in range(N_BASE):
+    for obs in range(nb):
         m = observer_table(pl, d, obs)
         if m is None or m.sec.nunique() < 10:
             continue

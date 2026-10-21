@@ -135,6 +135,14 @@ int main(int argc, char *argv[])
     cmd.AddValue("uwbPmiss",      "Errore UWB real: probabilita' che un episodio NLOS non sia rilevato", errP.pMiss);
     cmd.AddValue("uwbPfa",        "Errore UWB real: probabilita' che un messaggio LOS sia dichiarato NLOS", errP.pFa);
     cmd.AddValue("uwbLog",        "Log di ogni DS-TWR in uwb_log.csv (verita', misura, stato vero e dichiarato)", uwbLog);
+    std::string formation = "legacy";
+    double spacing = 12.0, shellSpeed = 1.0;
+    bool mixed = false, insiderSpread = false;
+    cmd.AddValue("formation",     "Geometria dei droni base: legacy (storica) | shell (guscio sferico a spaziatura costante)", formation);
+    cmd.AddValue("spacing",       "Formazione shell: distanza voluta dal drone piu' vicino [m]", spacing);
+    cmd.AddValue("shellSpeed",    "Formazione shell: velocita' di rotazione all'equatore [m/s]", shellSpeed);
+    cmd.AddValue("mixed",         "Attaccanti interni (--targetsId da --attackTime) anche con lo spoofer esterno (--spoof)", mixed);
+    cmd.AddValue("insiderSpread", "Attaccanti interni con direzioni diverse (0 = tutti verso nord, coordinati)", insiderSpread);
     double formationScale = 1.0;
     cmd.AddValue("formationScale", "Strada A: scala della formazione (distanze x S, velocita' lineari invariate)", formationScale);
     cmd.Parse(argc, argv);
@@ -169,6 +177,11 @@ int main(int argc, char *argv[])
                   << " m, rumore " << errP.sigmaFloor << " + " << errP.sigmaEdge << " m a margine 0 dB (sensibilita' "
                   << errP.link.sensDbm << " dBm), NLOS non rilevati " << errP.pMiss << ", falsi NLOS " << errP.pFa << std::endl;
     if (uwbLog) UwbSecurityApp::SetUwbLog("uwb_log.csv");
+    if (formation != "legacy" && formation != "shell") { std::cerr << "--formation deve essere legacy oppure shell" << std::endl; return 1; }
+    if (formation == "shell" && (setnDrones < 5 || spacing <= 0.0 || shellSpeed < 0.0)) {
+        std::cerr << "--formation=shell richiede almeno 5 droni base, --spacing > 0 e --shellSpeed >= 0" << std::endl; return 1;
+    }
+    SetFormation(formation == "shell" ? 1 : 0, spacing, shellSpeed);
     if (formationScale <= 0.0) { std::cerr << "--formationScale deve essere positivo" << std::endl; return 1; }
     SetFormationScale(formationScale);
     if (formationScale != 1.0) std::cout << ">>> Formazione scalata: S=" << formationScale << std::endl;
@@ -190,7 +203,8 @@ int main(int argc, char *argv[])
             UwbSecurityApp::SetGnssSpoofer(sp, "gnss_log.csv");
             UwbSecurityApp::SetPps(ppsSawtoothNs, ppsNoiseNs, "pps_log.csv");
             std::cout << ">>> Spoofer esterno: antenna (" << sp->antenna.transpose() << ") attivo da t=" << sp->startS
-                      << " s; l'attacco interno (--targetsId) e' disattivato" << std::endl;
+                      << (mixed ? " s; con --mixed=1 restano gli attaccanti interni (--targetsId)"
+                                : " s; l'attacco interno (--targetsId) e' disattivato") << std::endl;
         }
         UwbHeader::SetGnssAccMode(true);
         UwbSecurityApp::SetChi2Threshold(chi2Thr);
@@ -200,6 +214,10 @@ int main(int argc, char *argv[])
 
     uint32_t totalNodes = setnDrones + setnGuests; 
     std::cout << "Slot totali allocati nel Frame TDMA: " << totalNodes << std::endl;
+    std::cout << ">>> Sciame: " << setnDrones << " droni base, " << setnGuests << " ospiti, formazione " << formation;
+    if (formation == "shell")
+        std::cout << " (raggio " << ShellRadius((int)setnDrones - 1) << " m, spaziatura " << spacing << " m, " << shellSpeed << " m/s)";
+    std::cout << ", frame TDMA " << totalNodes * setSlot * 1000.0 << " ms" << std::endl;
 
     std::ofstream csvFile(csvFileName);
     if (csvFile.is_open()) {
@@ -290,7 +308,16 @@ int main(int argc, char *argv[])
         std::stringstream ss(targetsId);
         std::string item;
         while (std::getline(ss, item, ',')) maliciousIds.push_back(std::stoi(item));
-        if (spoof) maliciousIds.clear();   // con lo spoofer esterno nessun drone dello sciame mente
+        if (spoof && !mixed) maliciousIds.clear();   // con lo spoofer esterno nessun drone mente (salvo --mixed=1)
+    }
+    if (!maliciousIds.empty() && (insiderSpread || mixed || formation == "shell")) {
+        std::cout << ">>> Attaccanti interni:";
+        for (size_t k = 0; k < maliciousIds.size(); k++) {
+            double deg = insiderSpread ? 90.0 + 360.0 * k / maliciousIds.size() : 90.0;
+            if (maliciousIds[k] < totalNodes && apps[maliciousIds[k]]) apps[maliciousIds[k]]->SetAttackDirection(deg);
+            std::cout << " " << maliciousIds[k] << "@" << deg;
+        }
+        std::cout << " (id@direzione in gradi, 90 = nord), da t=" << attackTime << " s" << std::endl;
     }
 
     Simulator::Schedule(Seconds(attackTime), [&apps, maliciousIds, totalNodes]() {
@@ -329,6 +356,7 @@ int main(int argc, char *argv[])
     Simulator::Stop(Seconds(setSimTime + 1.0));
     Simulator::Run();
     UwbSecurityApp::PrintLinkStats();
+    UwbSecurityApp::PrintPacketStats();
     UwbSecurityApp::PrintPpsStats();
     channel->PrintErrorStats();
     Simulator::Destroy();

@@ -90,6 +90,9 @@ public:
                Ptr<UWBChannel> channel, std::ofstream* csv);
 
     void SetMalicious(bool isMalicious);
+    // Direzione dello spostamento del GPS dichiarato da un attaccante interno [gradi, 90 = nord: storico]
+    void SetAttackDirection(double deg) { m_attackDirX = std::cos(deg * M_PI / 180.0); m_attackDirY = std::sin(deg * M_PI / 180.0); }
+    static void PrintPacketStats();
     bool IsMalicious() const;
     
     double GetClockOffset() const { return m_clockOffset; }
@@ -128,6 +131,8 @@ private:
     uint32_t        m_swarmSize;
     bool            m_isMalicious;
     double          m_attackStartTime;
+    double          m_attackDirX = 0.0, m_attackDirY = 1.0;   // storico: verso nord (+y)
+    static uint32_t s_maxPktBytes;
     double          m_slotDuration;
     uint16_t        m_port;
     Ptr<UWBChannel> m_channel;

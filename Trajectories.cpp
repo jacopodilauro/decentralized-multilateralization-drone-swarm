@@ -25,6 +25,33 @@ static double g_scale = 1.0;
 void SetFormationScale(double s) { g_scale = s; }
 double GetFormationScale() { return g_scale; }
 
+static int g_formation = 0;
+static double g_spacing = 12.0, g_shellSpeed = 1.0;
+void SetFormation(int type, double spacing, double speed) { g_formation = type; g_spacing = spacing; g_shellSpeed = speed; }
+int GetFormation() { return g_formation; }
+
+// k-esimo di n punti di Fibonacci sulla sfera unitaria, asse polare verticale (z)
+static Vector ShellUnit(int k, int n) {
+    double z = 1.0 - 2.0 * (k + 0.5) / n;
+    double r = std::sqrt(std::max(0.0, 1.0 - z * z));
+    double th = M_PI * (3.0 - std::sqrt(5.0)) * k;
+    return Vector(r * std::cos(th), r * std::sin(th), z);
+}
+
+double ShellRadius(int n) {
+    if (n < 2) return g_spacing;
+    std::vector<double> nn(n, 1e9);
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++) {
+            Vector a = ShellUnit(i, n), b = ShellUnit(j, n);
+            double d = std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
+            nn[i] = std::min(nn[i], d); nn[j] = std::min(nn[j], d);
+        }
+    std::sort(nn.begin(), nn.end());
+    double med = (n % 2) ? nn[n / 2] : 0.5 * (nn[n / 2 - 1] + nn[n / 2]);
+    return std::max(g_spacing, g_spacing / med);
+}
+
 Vector GetFibonacciPoint(int i, int n, double radius) {
     double y = 1 - (i / (double)(n - 1)) * 2;
     double radius_at_y = std::sqrt(1 - y * y);
@@ -46,6 +73,19 @@ void AssignTrajectoryToNode(
     Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
     if (!mob) {
         std::cerr << "Errore: WaypointMobilityModel non trovato." << std::endl;
+        return;
+    }
+    if (g_formation == 1) {   // guscio sferico a spaziatura costante (vedi Trajectories.h)
+        int n = std::max(1, total_nodes - 1);
+        double R = ShellRadius(n), w = g_shellSpeed / R;
+        Vector u = (id > 0) ? ShellUnit(id - 1, n) : Vector(0.0, 0.0, 0.0);
+        for (double t = 0.0; t <= simTime; t += step_sec) {
+            double a = w * t, ca = std::cos(a), sa = std::sin(a);
+            Vector pos(ARENA_CENTER_X + R * (u.x * ca - u.y * sa),
+                       ARENA_CENTER_Y + R * (u.x * sa + u.y * ca),
+                       ARENA_CENTER_Z_MEAN + R * u.z);
+            mob->AddWaypoint(Waypoint(Seconds(t), pos));
+        }
         return;
     }
     int num_drones = (total_nodes > 1) ? total_nodes - 1 : 1; 
