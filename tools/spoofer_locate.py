@@ -31,14 +31,19 @@ from spoofer_view import antenna_from_stdout, solve_toa  # noqa: E402
 
 def solve_tdoa_epochs(P, d, ep):
     """TDoA con una costante incognita per epoca (secondo): d_k = |p_k - s| - |p_ref(ep) - s| + cost(ep).
-    Sottraendo la media di ogni epoca la costante sparisce. Gauss-Newton da 12 direzioni a 300 m."""
+    Sottraendo la media di ogni epoca la costante sparisce. Gauss-Newton da 12 direzioni a 300 m poco sotto la quota
+    dello sciame (partenze storiche) e da 6 direzioni a 40 m, poco sotto e 45 gradi sotto: con lo spoofer vicino e a
+    terra, partendo solo da 300 m la ricerca scivolava verso soluzioni lontanissime (PAPER_NOTES 4.30).
+    Vince la soluzione con il residuo minore."""
     c0 = P.mean(axis=0)
     _, inv = np.unique(ep, return_inverse=True)
     cnt = np.bincount(inv)
     dm = d - (np.bincount(inv, d) / cnt)[inv]
     best, best_res = None, np.inf
-    for a in range(12):
-        s = c0 + 300 * np.array([np.cos(a * np.pi / 6), np.sin(a * np.pi / 6), -0.1])
+    starts = [(300.0, -0.1, a) for a in range(12)]                                     # partenze storiche (prime)
+    starts += [(40.0, kz, 2 * a) for kz in (-0.1, -1.0) for a in range(6)]               # vicine, 6 direzioni
+    for r0, kz, a in starts:
+        s = c0 + r0 * np.array([np.cos(a * np.pi / 6), np.sin(a * np.pi / 6), kz])
         for _ in range(40):
             v = s - P
             rho = np.linalg.norm(v, axis=1)

@@ -179,7 +179,10 @@ def plot(csv, png):
     cols = ["S", "R_m", "apertura_m", "curvatura_m", "forma_m", "reale_azimut_mediano_gradi", "reale_azimut_max_gradi",
             "reale_azimut_fusione_gradi", "reale_azimut_fusione_W20_gradi", "rotazione_mediana_gradi",
             "reale_distanza_mediana_m", "reale_distanza_determinata_pct", "ideale_distanza_mediana_m"]
-    r = r.assign(R_m=(r.R_m / 50).round() * 50)   # distanze nominali (il centro pre-cattura varia di pochi m)
+    # distanza nominale dal nome della run (.../S1_R25/seed1); se manca, arrotondata a 50 m come prima (il centro
+    # pre-cattura varia di pochi m). Il solo arrotondamento fondeva R = 25 e R = 50 m
+    nom = r.run.astype(str).str.extract(r"_R(\d+(?:\.\d+)?)/", expand=False).astype(float)
+    r = r.assign(R_m=nom.where(nom.notna(), (r.R_m / 50).round() * 50))
     cols = [c for c in cols if c in r.columns]
     agg = r.groupby(["R_m", "S"])[cols[2:]].median().reset_index()
     agg["seed"] = r.groupby(["R_m", "S"]).size().values
