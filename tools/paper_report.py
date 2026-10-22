@@ -143,10 +143,17 @@ def report_interni(d, rep, plt):
     plt.close(fig)
     figs.append("fig4_interni_latenza.png")
 
-    # Osservazioni calcolate
+    # Osservazioni calcolate (solo sulle configurazioni con tutti i seed: una campagna interrotta lascia configurazioni
+    # con meno seed, che non vanno usate per le conclusioni)
     obs = []
+    full = t.groupby("N").seed.transform("max")
+    inc = t[t.seed < full]
+    t_c = t[t.seed >= full]
+    if len(inc):
+        obs.append("- **Attenzione: configurazioni con seed incompleti (escluse dalle frasi seguenti):** " + "; ".join(
+            f"N = {r.N}, k = {r.k}, {r['mode']} ({r.seed} seed)" for _, r in inc.iterrows()) + ".")
     for mode in MODES:
-        tm = t[t["mode"] == mode]
+        tm = t_c[t_c["mode"] == mode]
         parts = []
         for n, g in tm.groupby("N"):
             ok = g[(g.rilevati >= 90) & (g.fa_med <= 5)]
