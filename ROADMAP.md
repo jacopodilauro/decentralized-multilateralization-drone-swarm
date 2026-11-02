@@ -28,6 +28,7 @@ Per chiudere il simulatore (poi solo correzioni di bug):
    figure con scale confrontabili, spiegazioni calcolate dai dati). Nuove opzioni (default identico byte per byte):
    `--formation=shell` (guscio sferico, 12 m dal vicino per ogni N), `--insiderSpread`, `--mixed` (PAPER_NOTES 4.33).
    `tools/paper_figures.py`: figure finali in inglese (formato ACM) e tabelle LaTeX dalle tabelle del rapporto.
+   `tools/paper_pgfplots.py`: gli stessi grafici in pgfplots (codice LaTeX con i dati dentro), `--lingua it|en`.
    Prima versione: Scenario della PROVA
    REALE (7-10 droni piccoli, vicini, spoofer vicino): `--setnGuests=0` (8 droni base) con `--formationScale` 0,5-1 e
    `--spoofDist` 25-200 (PAPER_NOTES 4.30). Limite trovato: con distanze tra droni <= ~10 m (S = 0,5) la cattura non
@@ -449,3 +450,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-21 | 9.1e (analisi) | fix the tdoa solver for nearby spoofers | Spoofer a 50 m: ideale da 19,9 km a 5,5 m; spoofer lontani identici |
 | 2026-10-21 | 10.1 | add the paper campaign | Guscio sferico, attaccanti multipli, scenario misto; limite N >= k + 5 con attaccanti interni |
 | 2026-10-22 | 10.2 | add paper figures | Figure in inglese per ACM (PDF senza font Type 3), griglia N x k con k = N - 5, tabelle LaTeX; avviso seed incompleti nel rapporto |
+| 2026-10-26 | 10.3 | add latex figures | Grafici in pgfplots (stile LaTeX, modificabili in Overleaf) dalle tabelle del rapporto; italiano o inglese |
