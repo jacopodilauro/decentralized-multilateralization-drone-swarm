@@ -23,6 +23,7 @@ per N = 50 seed 1-5 e k ridotti; ~5 h con 8 core). Le run piu' economiche vengon
 riprendibile: rilanciando lo stesso comando si fanno solo le run mancanti (anche dopo Ctrl-C).
 """
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -31,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
@@ -165,23 +167,19 @@ def scalar_metrics(m, prefix=""):
     return out
 
 
-def run_one(c, sim, out):
+# Analisi in parallelo limitate da un semaforo: ogni analisi carica in memoria il log della run (milioni di righe con
+# 30-50 droni); con molte analisi insieme la RAM si esaurisce e Linux uccide un processo (tutta la coda fallisce).
+_ANALISI = None
+
+
+def _init_worker(sem):
+    global _ANALISI
+    _ANALISI = sem
+
+
+def _analyse(c, d, rc, row):
     import metrics          # noqa: E402  (import nel processo figlio)
     import aperture_sweep   # noqa: E402
-    d = os.path.join(out, c["exp"], label(c), f"seed{c['seed']}")
-    rowf = os.path.join(d, "row.json")
-    if os.path.exists(rowf):
-        return json.load(open(rowf))
-    if os.path.isdir(d):
-        shutil.rmtree(d)
-    os.makedirs(d)
-    t0 = time.time()
-    with open(os.path.join(d, "stdout.txt"), "w") as fh:
-        rc = subprocess.call([sim] + sim_args(c), cwd=d, stdout=fh, stderr=subprocess.STDOUT)
-    row = dict(c)
-    row["insider_ids"] = " ".join(str(i) for i in insider_ids(c["N"], c["k"])) if c["k"] > 0 else ""
-    row["tempo_run_s"] = round(time.time() - t0, 1)
-    row["rc"] = rc
     try:
         if rc != 0:
             raise RuntimeError(f"il simulatore e' uscito con codice {rc}")
@@ -203,6 +201,25 @@ def run_one(c, sim, out):
     except Exception as e:  # la run resta registrata, con l'errore
         row["ok"] = 0
         row["errore"] = str(e)[:300]
+
+
+def run_one(c, sim, out):
+    d = os.path.join(out, c["exp"], label(c), f"seed{c['seed']}")
+    rowf = os.path.join(d, "row.json")
+    if os.path.exists(rowf):
+        return json.load(open(rowf))
+    if os.path.isdir(d):
+        shutil.rmtree(d)
+    os.makedirs(d)
+    t0 = time.time()
+    with open(os.path.join(d, "stdout.txt"), "w") as fh:
+        rc = subprocess.call([sim] + sim_args(c), cwd=d, stdout=fh, stderr=subprocess.STDOUT)
+    row = dict(c)
+    row["insider_ids"] = " ".join(str(i) for i in insider_ids(c["N"], c["k"])) if c["k"] > 0 else ""
+    row["tempo_run_s"] = round(time.time() - t0, 1)
+    row["rc"] = rc
+    with (_ANALISI if _ANALISI is not None else contextlib.nullcontext()):
+        _analyse(c, d, rc, row)
     for f in BIG:
         p = os.path.join(d, f)
         if os.path.exists(p):
@@ -233,6 +250,8 @@ def main():
     ap.add_argument("--profilo", default="completo", choices=["prova", "rapido", "completo"])
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--out", default="runs/paper")
+    ap.add_argument("--analisi", type=int, default=1,
+                    help="analisi dei log in parallelo (ognuna carica il log intero: con 30-50 droni tenere 1)")
     ap.add_argument("--stima", action="store_true", help="stampa solo il numero di run e il tempo stimato")
     a = ap.parse_args()
     exps = ["interni", "esterno", "misto"] if a.exp == "tutti" else [a.exp]
@@ -251,8 +270,18 @@ def main():
         sys.exit("imposta SIM=/percorso/eseguibile del simulatore")
     sim = os.path.abspath(sim)
     os.makedirs(a.out, exist_ok=True)
-    t0, n_ok, n_err = time.time(), 0, 0
-    with ProcessPoolExecutor(max_workers=a.jobs) as ex:
+    t0, n_ok, n_err, rotto = time.time(), 0, 0, False
+    # Ogni processo di lavoro fa UNA run e poi viene sostituito (max_tasks_per_child=1, richiede "spawn"): un processo
+    # Python che ha analizzato un log di milioni di righe non restituisce tutta la memoria al sistema, e con i processi
+    # riusati la RAM occupata cresceva a ogni run fino a far uccidere un processo (con 30-50 droni). I risultati non cambiano.
+    ctx = mp.get_context("spawn")
+    sem = ctx.Semaphore(max(1, a.analisi))
+    kw = dict(max_workers=a.jobs, mp_context=ctx, initializer=_init_worker, initargs=(sem,))
+    try:
+        pool = ProcessPoolExecutor(max_tasks_per_child=1, **kw)
+    except TypeError:   # Python < 3.11: nessun riciclo dei processi
+        pool = ProcessPoolExecutor(**kw)
+    with pool as ex:
         fut = {ex.submit(run_one, c, sim, a.out): c for c in todo}
         for i, f in enumerate(as_completed(fut), 1):
             c = fut[f]
@@ -261,6 +290,7 @@ def main():
                 ok = r.get("ok", 0) == 1
             except Exception as e:
                 ok, r = False, {"errore": str(e)}
+                rotto = rotto or "terminated abruptly" in str(e)
             n_ok += ok
             n_err += (not ok)
             el = (time.time() - t0) / 60.0
@@ -270,6 +300,11 @@ def main():
                 write_tables(a.out, exps)
     write_tables(a.out, exps)
     print(f">>> fatto: {n_ok} run riuscite, {n_err} con errore; tabelle in {a.out}/<esperimento>/risultati.csv")
+    if rotto:
+        print(">>> ATTENZIONE: un processo e' stato ucciso dal sistema (quasi sempre per memoria esaurita) e le run in "
+              "coda sono fallite senza partire. Controlla con: journalctl -k | grep -i 'killed process'. "
+              "Chiudi le simulazioni rimaste attive: pkill -f " + os.path.basename(sim) + ". "
+              "Poi rilancia lo stesso comando (anche con meno --jobs): le run gia' fatte restano.")
 
 
 if __name__ == "__main__":

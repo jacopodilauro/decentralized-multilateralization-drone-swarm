@@ -47,8 +47,15 @@ def _shape_stats(rows):
     return out
 
 
+# Colonne del log usate da compute(): leggere solo queste dimezza circa la memoria con sciami grandi (30-50 droni,
+# milioni di righe); i valori letti sono identici, quindi le metriche non cambiano.
+USED_COLUMNS = {"time", "sender_id", "observer_id", "est_x", "est_y", "est_z", "claim_x", "claim_y", "claim_z",
+                "true_x", "true_y", "true_z", "estimation_error", "alarm", "my_vote", "suspicious_now", "pos_std",
+                "gps_chi2", "pairs_ok_frac", "swarm_capture", "capture_consensus"}
+
+
 def compute(log_path, attack_time, targets, n_base):
-    d = pd.read_csv(log_path)
+    d = pd.read_csv(log_path, usecols=lambda c: c in USED_COLUMNS)
     m = {"righe_log": int(len(d))}
 
     pre = d[d.time < attack_time]
@@ -143,7 +150,8 @@ def compute(log_path, attack_time, targets, n_base):
     # 6) Dalla Fase 8: cattura dello sciame (spoofer esterno). Lo stato e' dell'osservatore: una riga per
     #    osservatore e decimo di secondo. Senza spoofer deve restare 0 anche con un drone che mente (nodo 0)
     if "swarm_capture" in d.columns:
-        st = d.assign(tb=(d.time * 10).round()).groupby(["observer_id", "tb"]).agg(
+        st = d[["observer_id", "time", "swarm_capture", "pairs_ok_frac"]].assign(tb=(d.time * 10).round()).groupby(
+            ["observer_id", "tb"]).agg(
             time=("time", "first"), cap=("swarm_capture", "max"), ok=("pairs_ok_frac", "first")).reset_index()
         spre = st[(st.time > 20) & (st.time < attack_time)]
         spost = st[st.time >= attack_time + 5]
@@ -157,7 +165,8 @@ def compute(log_path, attack_time, targets, n_base):
         m["cattura_osservatori_attivi"] = int(n_obs)
         m["cattura_latenza_mediana_s"] = float(first.median()) if len(first) else None
     if "capture_consensus" in d.columns:
-        sc = d.assign(tb=(d.time * 10).round()).groupby(["observer_id", "tb"]).agg(
+        sc = d[["observer_id", "time", "capture_consensus"]].assign(tb=(d.time * 10).round()).groupby(
+            ["observer_id", "tb"]).agg(
             time=("time", "first"), cons=("capture_consensus", "max")).reset_index()
         cpre = sc[(sc.time > 20) & (sc.time < attack_time)]
         cpost = sc[sc.time >= attack_time + 5]

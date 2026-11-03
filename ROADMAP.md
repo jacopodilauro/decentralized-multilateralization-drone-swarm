@@ -451,3 +451,4 @@ poi Fasi 3 + 5 insieme (radio e canale), poi Fase 10. Le figure finali del paper
 | 2026-10-21 | 10.1 | add the paper campaign | Guscio sferico, attaccanti multipli, scenario misto; limite N >= k + 5 con attaccanti interni |
 | 2026-10-22 | 10.2 | add paper figures | Figure in inglese per ACM (PDF senza font Type 3), griglia N x k con k = N - 5, tabelle LaTeX; avviso seed incompleti nel rapporto |
 | 2026-10-26 | 10.3 | add latex figures | Grafici in pgfplots (stile LaTeX, modificabili in Overleaf) dalle tabelle del rapporto; italiano o inglese |
+| 2026-11-03 | 10.4 | limit campaign memory | Con 30-50 droni le analisi parallele esaurivano la RAM (processo ucciso, 179 run fallite): analisi una alla volta (`--analisi`, default 1), log letto solo nelle 21 colonne usate (picco -20%), ogni processo fa una sola run e poi viene sostituito (memoria liberata); risultati identici alla versione precedente (558 campi su 7 run di prova) |
