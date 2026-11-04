@@ -1,16 +1,26 @@
 # PAPER_NOTES – note private per il paper (ACM MobiSys 2027)
 
 > File ignorato da git (`.gitignore`). Contiene solo numeri verificati nel simulatore, con la
-> configurazione in cui sono stati ottenuti. Aggiornato al 14 ottobre 2026 (strada A, risultati preliminari).
+> configurazione in cui sono stati ottenuti. Aggiornato al 20 ottobre 2026 (Fase 3 su GitHub; direzione con UWB a S = 2: causa e correzione).
 
-## 0. Scadenze
+## 0. Scadenze e regole (CFP ufficiale MobiSys 2027, verificata il 21/10/2026: sigmobile.org/mobisys/2027/call_for_papers)
 
-- Registrazione abstract: **27 novembre 2026 AoE** (in Italia 28 novembre alle 12:59)
-- Paper: **4 dicembre 2026 AoE** (in Italia 5 dicembre alle 12:59)
-- Conferenza: 21–25 giugno 2027, Ho Chi Minh City
-- La CFP di MobiSys 2026 dichiarava di valorizzare implementazioni funzionanti e valutazioni pratiche
-  (verificare la CFP 2027). Un paper solo simulato parte svantaggiato: anche una piccola campagna di
-  misure UWB reali (moduli DW3000, misure statiche LOS/NLOS) per calibrare il modello d'errore aiuta molto.
+- Registrazione abstract: **27 novembre 2026 23:59 AoE** (in Italia 28 novembre alle 12:59). Titolo e abstract di almeno
+  100 parole, significativi e vicini alla versione finale (abstract tipo "TBD" = rifiuto senza revisione)
+- Paper: **4 dicembre 2026 23:59 AoE** (in Italia 5 dicembre alle 12:59). **Nessuna proroga**
+- Early rejection 26/1/2027, rebuttal 8-12/2/2027 (500 parole), decisione 6/3/2027, camera-ready 14/4/2027
+- Conferenza: giugno 2027, Ho Chi Minh City (presenza obbligatoria di un autore, quota non studente)
+- Formato: **12 pagine** di contenuto principale (figure e tabelle comprese), appendice e bibliografia senza limite;
+  `\documentclass[sigconf,10pt]{acmart}`, PDF. Submission su mobisys27.hotcrp.com
+- **Revisione single-blind** (dal 2026): nomi e affiliazioni degli autori NEL paper. Il repository pubblico non e' un
+  problema di anonimato (resta solo una questione di riservatezza delle note prima della sottomissione)
+- **LLM:** il testo generato da LLM (ChatGPT, Claude, Gemini) va dichiarato chiaramente nel paper; non vale per
+  revisione/correzione di testo scritto dagli autori. Vietato testo nascosto per influenzare revisori LLM
+- La CFP 2027 enfatizza implementazioni funzionanti e riproducibili e valutazione pratica rigorosa: un paper solo
+  simulato parte svantaggiato (misure UWB reali con DW3000, anche statiche, aiuterebbero molto). Esiste un track
+  **Emerging Ideas** (titolo che inizia con "[Emerging Ideas]"): premia originalita' e idee non ancora del tutto
+  validate. Scelta del track da discutere con il relatore
+- Artifact evaluation opzionale dopo l'accettazione (il simulatore pubblico e' un punto a favore)
 
 ## 1. Obiettivo del lavoro
 
@@ -419,6 +429,326 @@ in y). Analisi: `python3 tools/spoofer_view.py runs/<etichetta>/seed1 [--jitter-
 - Apertura misurata (mediana per secondo) solo informativa: gli ospiti escono a ~167 s e la mediana salta tra i due
   regimi; le figure usano la scala S.
 
+### 4.18 Strada A: campagna completa (PC di Jacopo, 60 run: S 1-4 x R 250/500/1000 x 5 seed)
+
+Mediane sui 5 seed (per run: mediana sugli 8 osservatori base). Distanza "determinata" se |errore| < 50% di R.
+
+| R | S | curvatura | forma | rapporto | distanza reale | % di R | determinata | direzione reale (max oss.) | distanza ideale |
+|---|---|---|---|---|---|---|---|---|---|
+| 250 | 1 | 0,19 | 0,20 | 0,95 | 128 m | 51% | 50% | 1,50 (9,06) | 21 m |
+| 250 | 2 | 0,75 | 0,21 | 3,6 | 35 m | 14% | 100% | 1,49 (4,97) | 3,1 m |
+| 250 | 3 | 1,63 | 0,21 | 7,8 | 28 m | 11% | 87,5% | 3,56 (10,72) | 1,4 m |
+| 250 | 4 | 2,93 | 0,22 | 13,3 | 14 m | 5,5% | 100% | 1,66 (3,14) | 1,1 m |
+| 500 | 1 | 0,10 | 0,20 | 0,50 | 774 m | indet. | 25% | 1,41 (8,87) | 65 m |
+| 500 | 2 | 0,39 | 0,21 | 1,9 | 119 m | 24% | 87,5% | 1,57 (5,67) | 15 m |
+| 500 | 3 | 0,87 | 0,21 | 4,1 | 102 m | 20% | 87,5% | 3,60 (6,24) | 5,5 m |
+| 500 | 4 | 1,58 | 0,22 | 7,2 | 54 m | 11% | 87,5% | 1,36 (2,76) | 3,8 m |
+| 1000 | 1 | 0,05 | 0,20 | 0,25 | 19 km | indet. | 12,5% | 1,19 (8,78) | 219 m |
+| 1000 | 2 | 0,20 | 0,21 | 0,95 | 425 m | 42% | 50% | 1,61 (6,01) | 59 m |
+| 1000 | 3 | 0,44 | 0,21 | 2,1 | 370 m | 37% | 75% | 3,51 (5,95) | 20 m |
+| 1000 | 4 | 0,82 | 0,22 | 3,7 | 228 m | 23% | 75% | 1,30 (2,55) | 17 m |
+
+- **Risultato chiave: le tre distanze cadono sulla stessa curva in funzione del rapporto curvatura / errore di
+  forma.** ~1 -> 42-51%; ~2 -> 24-37%; ~4 -> 14-23%; 7-8 -> 11%; ~13 -> 5,5%. Regola di progetto per il paper.
+  Figura proposta: errore di distanza relativo contro il rapporto, tutti i punti insieme.
+- L'errore di forma (~0,2 m) non dipende dalla scala: la geometria stimata dallo sciame scala bene.
+- **Anomalia da spiegare: a S = 3 la direzione peggiora (3,5-3,6 gradi contro 1,2-1,7) per tutte e tre le R**, quindi
+  la causa e' nello sciame a quella scala, non nello spoofer. Ipotesi da verificare: interazione tra rotazione /
+  oscillazione dei droni a S = 3 e ancoraggio del riferimento (8.2c), o uscita degli ospiti. Non pubblicare la figura
+  della direzione prima di averla spiegata.
+- Peggior osservatore: 9 gradi a S = 1, 2,6-3,1 gradi a S = 4 (sciami piu' larghi riducono gli osservatori anomali).
+- **Curva unica** (figura `strada_A_curva_unica.png`, mediane per (R, S)): errore di distanza relativo contro il rapporto
+  curvatura / forma. Soglia pratica ~1 (sotto: indeterminata). Pendenza log-log ~ -0,75 per rapporto >= 0,9. I punti a
+  R = 1000 m stanno un po' sopra a parita' di rapporto (23% contro 14% a ~3,5-3,8): la distanza dipende SOPRATTUTTO dal
+  rapporto, non solo.
+- **Rilettura dell'anomalia a S = 3 (dati per seed):** direzione mediana sulle 3 R per seed 1-5 -> S=1: 1,29 0,84 7,51
+  1,90 1,41; S=2: 0,44 1,57 8,19 2,72 1,00; S=3: 1,69 3,60 7,02 3,62 1,96; S=4: 1,49 1,29 5,29 0,79 1,36. Il **seed 3 e'
+  pessimo a tutte le scale** (5-8 gradi; la sua costellazione ha geometria verticale peggiore, vAcc ~1,6 m contro ~0,6).
+  Le 3 R non sono campioni indipendenti (stesso sciame a parita' di seed e S): 5 campioni veri per S, mediana rumorosa.
+  S = 3 e' peggio di S = 2 in 4 seed su 5 ma di 1-2 gradi: probabile rumore, da confermare con piu' seed.
+- **Origine dell'errore di direzione (seed 3, S = 1, 8 osservatori):** la rotazione attorno alla verticale
+  dell'immagine dello sciame stimata (Kabsch, mediana durante la cattura) e' correlata con l'errore di azimut (-0,69,
+  segno atteso), ma tolta la rotazione resta un residuo mediano di 4,6 gradi. La rotazione non e' solo ereditata dal GPS
+  prima dell'attacco: cambia durante la cattura (es. oss. 5: -21,7 gradi all'inizio, +3,4 in mediana). **La direzione e'
+  limitata soprattutto da quanto bene lo sciame conosce il proprio orientamento (bussola/IMU, 8.2c) + un residuo da
+  spiegare.** Possibili miglioramenti: ancoraggio dell'orientamento piu' forte; stima della direzione in ogni secondo
+  nel riferimento di quel secondo e poi media.
+
+### 4.19 Direzione dello spoofer: fusione tra droni (S = 1, R = 500 m, 5 seed, tutto reale)
+
+`python3 tools/direction_methods.py runs/<etichetta>/seed<N>` confronta tre metodi sulle stesse misure.
+
+| metodo | errore (mediana sui 5 seed) | per seed | caso peggiore |
+|---|---|---|---|
+| singolo drone, cumulativo (attuale) | 1,47 gradi (mediana sui droni) | 1,47 / 0,82 / 7,50 / 1,83 / 1,29 | 14,7 gradi (un drone, seed 3) |
+| singolo drone, per secondo (onda piana) | 2,99 gradi | 1,19 / 3,47 / 4,53 / 2,99 / 1,00 | 11,5 gradi -> SCARTATO |
+| **fusione: mediana sugli 8 droni base (cumulativo)** | **0,34 gradi** | -0,34 / -0,01 / -5,81 / -1,83 / +0,20 | 5,8 gradi (seed 3) |
+| fusione del per secondo | 2,98 gradi | -0,04 / +3,47 / -3,65 / -2,98 / -0,47 | 3,65 gradi |
+
+- **La fusione e' la stima dello sciame da usare nel paper**: in 3 seed su 5 sotto 0,35 gradi; elimina i droni anomali.
+  Realistica: ogni drone annuncia la propria direzione (pochi byte), lo sciame prende la mediana.
+- Il metodo per secondo ignora la curvatura e introduce un errore sistematico che dipende dalla disposizione dei droni:
+  risultato negativo, da citare solo come tale.
+- **Limite residuo: errore di orientamento COMUNE a tutto lo sciame** (seed 3: -5,8 gradi; seed 4: -1,8): tutti i droni
+  sbagliano nello stesso verso e la mediana non lo toglie. Dipende da bussola e GPS prima dell'attacco.
+- `aperture_sweep.py` ha la colonna `reale_azimut_fusione_gradi`.
+- **CORREZIONE (campagna `aperture2` di Jacopo, 60 run, 5 seed): la fusione aiuta SOLO nello sciame compatto.**
+
+| R | S = 1 fusione / singolo | S = 2 | S = 3 | S = 4 |
+|---|---|---|---|---|
+| 250 m | 0,53 / 1,50 gradi | 1,49 / 1,49 | 2,94 / 3,56 | 1,66 / 1,66 |
+| 500 m | 0,30 / 1,41 | 1,57 / 1,57 | 3,60 / 3,60 | 1,36 / 1,36 |
+| 1000 m | 1,19 / 1,19 | 1,61 / 1,61 | 3,51 / 3,51 | 1,30 / 1,30 |
+
+  A S >= 2 fusione = singolo drone: |mediana degli errori con segno| = mediana dei moduli quando tutti gli 8 droni
+  sbagliano dallo stesso lato -> **errore di orientamento COMUNE a tutto lo sciame** (1,3-3,6 gradi), che la mediana non
+  toglie. "0,34 gradi" vale solo per S = 1 (R = 250-500 m). Non ancora spiegato perche' sia piu' grande a S = 3.
+- Tutte le altre colonne di `aperture2` sono identiche ad `aperture`: riproducibilita' confermata sul PC di Jacopo.
+- **Compromesso per il paper:** sciame compatto -> direzione 0,3-0,5 gradi, distanza non misurabile a 500-1000 m;
+  sciame largo (S = 3-4) -> distanza 11-23%, direzione 1,3-3,6 gradi limitata dall'orientamento comune.
+
+### 4.20 Fase 3: radio UWB e membership robusta alle perdite (seed 1)
+
+- `--radio=uwb` (default `wifi`, identico bit per bit). Bilancio di collegamento: EIRP -41,3 dBm/MHz su 499,2 MHz =
+  -14,3 dBm (limite FCC/ETSI); spazio libero a 1 m a 6,4896 GHz = 48,7 dB; esponente 1,76 e ombreggiamento 0,83 dB
+  (IEEE 802.15.4a CM5, outdoor LOS); 3 dB d'antenna; sensibilita' -100 dBm a 6,8 Mbit/s (scheda distributore: verificare
+  la sez. 3.4 del datasheet DW3000). Ricezione al 50% a 85 m; con `--uwbSensDbm=-90` a 23 m (in pratica utenti DWM3000
+  riportano 20-30 m, forum Qorvo). Il trasporto resta lo stack Wi-Fi di ns-3 (slot 5 ms): si decide solo SE arriva.
+- **Scoperta: la membership era tarata su un Wi-Fi senza perdite.** S = 4 con radio UWB: 363 espulsioni a catena, sciame
+  crollato, cattura non rilevata. Correzioni: voti con scadenza; notizie indirette (un altro drone ha misurato X); un voto
+  contro X conta solo se anche chi lo riceve non ha notizie fresche di X; nessun voto contro se stessi; quorum delle
+  espulsioni sui membri vivi. Con il Wi-Fi 0 espulsioni -> CSV identico.
+- Risultati, radio UWB:
+  - S = 1, sciame normale: 98% dei pacchetti ricevuti (<30 m 99,99%; 60-90 m 71%); metriche entro l'1% del Wi-Fi.
+  - S = 4, spoofer a 500 m: 62,9% dei pacchetti; cattura e consenso 20/20; 8/8 droni base connessi fino alla fine;
+    espulsioni solo tra 164 e 170 s (ospiti fuori portata), nessun base espulso da un base.
+  - S = 4, drone bugiardo (nodo 0): rilevato 7/7 in 4,3 s; FA onesti dopo 0%; FA collettivi prima 0,54%; errore relativo
+    base p95 5,9 m. Da confrontare con il Wi-Fi a S = 4 (Fase 10).
+- **S = 2 con radio UWB (configurazione consigliata per il paper), spoofer a 500 m, seed 1, PC di Jacopo**, confrontata
+  con lo stesso caso in Wi-Fi (campagna `aperture`):
+
+| | Wi-Fi | UWB |
+|---|---|---|
+| pacchetti ricevuti | 100% | 91,35% (0-30 m 99,98%; 30-60 m 98,21%; 60-90 m 72,34%) |
+| consenso sulla cattura | 20/20 | 20/20 |
+| errore di forma | 0,198 m | 0,201 m |
+| distanza reale (mediana) / determinata | 109 m (22%) / 87,5% | 45 m (9%) / 75% |
+| direzione reale (mediana / peggiore) | 0,44 / 5,67 gradi | 1,43 / 10,2 gradi |
+
+  Un solo seed: la direzione in Wi-Fi a S = 2 va da 0,44 a 8,19 gradi a seconda del seed, quindi la differenza puo' essere
+  rumore. Con UWB alcune differenze di PPS non arrivano: l'insieme di misure cambia (anche l'ideale: 35 contro 41 m).
+- Da fare: campagna `EXTRA="--radio=uwb"` con SCALES="1 2", DISTS="250 500 1000", SEEDS="1 2 3 4 5" (30 run) per
+  confermare che la radio UWB non peggiori la direzione in modo sistematico; Fase 5 (LOS/NLOS e ombreggiamento
+  correlati, errore che cresce con la distanza, riconoscimento NLOS imperfetto).
+- Scelta di progetto proposta (da confermare con la campagna): **tutto UWB, sciame entro ~60 m tra i droni (S <= 2)**.
+  Alternativa scartata per ora: radio ibrida (UWB per misurare, altra radio per i dati), come estensione futura.
+
+### 4.21 Direzione peggiore con radio UWB a S = 2: causa trovata (seed 2, 3, 5, spoofer a 500 m)
+
+Strumento: `python3 tools/observer_diag.py runs/<etichetta>/seed<N> [--per-second OSS]` (forma con sola rotazione e con
+riflessione, rotazione attorno alla verticale, pacchetti ricevuti, differenze di PPS anomale, per osservatore).
+
+- Osservatori anomali: seed 2 oss. 5 (-146,9 gradi), seed 3 oss. 7 (-145,7), seed 5 oss. 6 (+76,2; anche oss. 3 -13,0).
+  **La loro geometria e' buona**: forma 0,18-0,28 m come gli altri, riflessione mai migliore della rotazione, rotazione
+  4-14 gradi come gli altri, 98-99% dei pacchetti dagli altri droni base. **Ipotesi "drone periferico con geometria
+  ruotata o specchiata": smentita.** (La forma mediana "invariata" era corretta: il problema non e' nella forma.)
+- **Causa: sincronizzazione (9.1).** La retta tra l'orologio del mittente e quello dell'osservatore usa le ultime 20 coppie
+  tx/rx SENZA limite di eta'. Con le perdite UWB verso droni lontani (soprattutto ospiti in uscita, 160-173 s) le 20 coppie
+  coprono fino a ~17 s, oltre mezzo giro del contatore UWB a 40 bit (2^40 x 15,65 ps = 17,2 s; `TickDiff` legge le
+  differenze in +-8,6 s): le coppie piu' vecchie vengono lette con un giro sbagliato e la differenza di PPS sbaglia di
+  4-47 km. Build diagnostica, seed 2: 57 misure su 29.295 oltre 20 m di errore, 56 con finestra di 14,8-17,1 s; tutte
+  le buone hanno finestra <= 8,6 s (mediana 1,9 s). Seed 3 e 5: 71 e 69 misure anomale, tutte con finestra >= 7,4 s
+  (una coppia a -9 s appare a +8,2 s). Poche misure da decine di km bastano a rovinare i minimi quadrati di un osservatore.
+- Spiega tutti i sintomi: Wi-Fi senza perdite -> finestra sempre ~1,9 s -> nessun problema; S = 1 -> distanze corte,
+  poche perdite; errore uguale per le tre distanze dello spoofer (dipende dallo sciame); forma invariata.
+  **Il bug tocca solo il log dei PPS (localizzazione dello spoofer), non il comportamento dello sciame.**
+- Oracolo (coppie piu' vecchie di 4 s scartate, build non consegnata): seed 2 oss. 5 -146,9 -> -6,0 gradi; seed 3 oss. 7
+  -145,7 -> -14,6; seed 5 oss. 6 +76,2 -> 0,00, oss. 3 -13,0 -> -1,1, oss. 1 +7,1 -> -1,4; tutti gli altri identici.
+  Misure PPS oltre 20 m: 57-71 -> 2-8 per seed (max 27-36 m, causa ancora da capire; nessuna negli osservatori base).
+- Osservazione coerente con la 4.19: dopo la correzione l'errore di direzione segue la rotazione del riferimento stimato
+  (az ~ -rot_z; seed 3: rotazione 8-10 gradi, errore -8...-9,6 gradi; seed 5: rotazione entro 2 gradi, errore entro 1,5).
+- **Conseguenza:** i numeri UWB a S = 2 della 4.20 (direzione 1,43 / 10,2 gradi) e della campagna UWB (3,21 gradi contro
+  1,57 in Wi-Fi) sono falsati da questo bug. Rifare il confronto dopo la correzione.
+- Da fare (prossimo passo): finestra delle coppie limitata nel tempo + controllo di qualita' della retta (residuo) ed
+  esclusione dalla fusione delle stime incoerenti; Wi-Fi identico; campagna 5 seed Wi-Fi/UWB sul PC di Jacopo.
+- Nota di metodo: guardare sempre le statistiche PER OSSERVATORE (min/max), non solo le mediane.
+
+### 4.22 Correzione della sincronizzazione (9.1b, patch `limit the clock fit window`)
+
+- Retta tra gli orologi: coppie al massimo di 4 s (finestra nominale 1,9 s; mezzo giro del contatore 8,6 s) e solo con una
+  distanza DS-TWR di al massimo 0,3 s. Controllo di qualita': differenza di PPS scartata se il residuo RMS della retta supera
+  10 m (stampa `>>> PPS:` a fine simulazione). Il controllo non e' mai scattato (0 su ~28.800 per run): le due regole
+  sulle coppie bastano; resta come protezione.
+- **Seconda causa trovata:** con la sola finestra di 4 s restavano 2-8 misure per seed con errore di 20-36 m; aggiungendo il
+  limite di eta' della distanza spariscono. Causa: il tempo di volo sottratto a ogni coppia veniva dall'ultima distanza
+  DS-TWR riuscita, vecchia anche di secondi con le perdite; l'errore e' pari a quanto si e' mosso il mittente (ospiti a
+  7,5 m/s -> 30 m in 4 s).
+- Identita': Wi-Fi (seed 2, S = 2, spoofer) identico in tutti i file, pps_log compreso; default (seed 1) identico; UWB S = 2
+  (seed 1): CSV dello sciame, gnss_log, ground_truth identici, cambia solo pps_log. **Il bug non ha mai toccato lo sciame:
+  tutte le metriche di rilevamento, forma e cattura gia' riportate restano valide.**
+- UWB, S = 2, R = 500 m: misure PPS oltre 20 m 57-71 -> 0 per seed; errore di sincronizzazione std 2,56 m (atteso dal dente
+  di sega 2,45 m, 4.15).
+
+| seed | prima (mediana / peggiore) | dopo | Wi-Fi S = 2 (4.18, mediana sulle 3 R) |
+|---|---|---|---|
+| 1 | 1,43 / 10,2 gradi | 0,67 / 5,6 | 0,44 |
+| 2 | 4,72 / 146,9 | 4,74 / 6,8 | 1,57 |
+| 3 | - / 145,7 | 8,45 / 14,8 | 8,19 |
+| 5 | 1,42 / 76,2 | 1,12 / 1,5 | 1,00 |
+
+  Seed 1, distanza: 45,1 m (75% determinata) -> 44,5 m (100%). I casi da 76-147 gradi spariscono. Il seed 2 resta
+  peggiore del Wi-Fi ma per l'errore di orientamento COMUNE (tutti gli osservatori dallo stesso lato, -1,8...-6,8 gradi,
+  segue la rotazione del riferimento stimato, 4.19), non per un drone anomalo. Confronto Wi-Fi/UWB definitivo: campagna
+  5 seed sul PC di Jacopo (`uwb_fix`).
+- I numeri UWB a S = 2 della 4.20 (direzione 1,43 / 10,2 gradi; distanza 45 m / 75%) sono superati da questa sezione.
+- Per il paper (sezione sul sistema): la sincronizzazione tra orologi UWB deve gestire collegamenti con perdite: finestra
+  limitata nel tempo rispetto al periodo del contatore e tempo di volo fresco. Dettaglio da implementazione reale (DW3000:
+  contatore a 40 bit, stesso periodo di 17,2 s).
+
+### 4.23 Confronto Wi-Fi/UWB dopo la correzione (campagna 5 seed sul PC di Jacopo, `uwb_fix` / `wifi_fix`)
+
+Mediane su 5 seed (seed 1-5), stessa build, stessi seed nelle due radio:
+
+| R | S | dir. mediana UWB / Wi-Fi | dir. peggiore UWB / Wi-Fi | fusione UWB / Wi-Fi | distanza mediana UWB / Wi-Fi | determinata UWB / Wi-Fi |
+|---|---|---|---|---|---|---|
+| 250 | 1 | 1,66 / 1,50 | 8,10 / 9,06 | 1,15 / 0,53 | 106 / 128 m | 62,5 / 50% |
+| 500 | 1 | 1,74 / 1,41 | 7,97 / 8,87 | 0,76 / 0,30 | 433 / 774 m | 25 / 25% |
+| 1000 | 1 | 1,16 / 1,19 | 7,90 / 8,78 | 0,56 / 1,19 | 9.878 / 18.996 m | 12,5 / 12,5% |
+| 250 | 2 | 3,31 / 1,36 | 6,21 / 4,86 | 3,31 / 1,36 | 28 / 36 m | 100 / 100% |
+| 500 | 2 | 3,17 / 1,50 | 6,00 / 5,64 | 3,17 / 1,50 | 137 / 116 m | 87,5 / 87,5% |
+| 1000 | 2 | 3,04 / 1,55 | 5,79 / 6,00 | 3,04 / 1,55 | 430 / 367 m | 62,5 / 62,5% |
+
+- **Correzione efficace sugli osservatori anomali:** il peggiore in UWB a S = 2 scende da 76-147 gradi a <= 6,2 gradi, come
+  in Wi-Fi. Wi-Fi invariato rispetto alla campagna precedente (atteso: la correzione non lo tocca).
+- **S = 1:** UWB ~ Wi-Fi in direzione e distanza.
+- **S = 2: la direzione mediana in UWB resta ~2x il Wi-Fi (3,0-3,3 contro 1,4-1,6 gradi), ma la mediana coincide con la
+  fusione:** tutti gli osservatori sbagliano dallo stesso lato = errore di orientamento COMUNE del riferimento stimato
+  (4.19), non droni anomali. La distanza e' equivalente tra le due radio (stessa frazione determinata).
+- **Oracolo (seed 2, S = 2, R = 500 m, eseguito da Claude):**
+
+| | dir. mediana / peggiore | rotazione del riferimento (8 osservatori) |
+|---|---|---|
+| UWB normale (91% dei pacchetti) | 4,74 / 6,8 gradi | 3,1-8,2 gradi |
+| UWB senza perdite (`--uwbSensDbm=-130`, 100%) | 1,50 / 3,35 | 1,7-4,5 |
+| Wi-Fi (CORRETTO in 4.25: la run da 1,54 / 3,33 era troncata) | 1,50 / - | identico a UWB senza perdite |
+
+  Stessa radio e stesse temporizzazioni, cambia solo chi riceve: **il divario residuo a S = 2 e' causato dalle perdite di
+  pacchetti, che fanno ruotare di piu' il riferimento stimato.** UWB senza perdite = Wi-Fi.
+- Da capire (prossimo passo proposto, prima della Fase 5): QUALI perdite contano (collegamenti base-ospite lunghi,
+  60-90 m al 72%? velocita' IMU nei pacchetti dell'8.2c? filtro su se stessi?) e se e' un limite dello stimatore
+  (correggibile) o informativo (meno vincoli = piu' deriva di orientamento). Se fisico, e' un risultato per il paper:
+  allargare la formazione rende la distanza osservabile ma, con portata UWB reale, costa precisione di direzione.
+- Nota di metodo: con 5 seed la mediana per configurazione e' fragile (dipende da 1-2 seed); per il paper riportare
+  anche i confronti appaiati per seed e piu' seed (>= 10, sez. 8).
+
+### 4.24 Perche' le perdite UWB peggiorano la direzione a S = 2: rotazione del riferimento (seed 2, S = 2, R = 500 m)
+
+Misura: rotazione attorno alla verticale del riferimento stimato da ogni osservatore base, solo droni base (Kabsch per
+secondo), mediana tra osservatori e secondi. Ora registrata da `aperture_sweep.py` (colonne `rotazione_*`).
+
+| | rotazione con gli ospiti (105-160 s) | dopo l'uscita (180-240 s) |
+|---|---|---|
+| UWB, tutte le perdite | 5,03 gradi | 9,32 |
+| oracolo: solo gli ospiti perdono (osservatori base senza perdite) | 4,10 | 6,89 |
+| oracolo: solo gli osservatori base perdono | 3,71 | 6,55 |
+| UWB senza perdite (`--uwbSensDbm=-130`) | 2,61 | 5,98 |
+
+- **Non e' caso:** l'andamento nel tempo e' lo STESSO con e senza perdite (sale fino a ~140 s, scende verso 160 s, risale
+  a 190 s, scende a 210 s, risale a 230 s, fino a ~10 gradi anche senza perdite). Errore sistematico legato al moto.
+  Le perdite lo amplificano (circa +2,4 gradi con gli ospiti, +3,3 dopo).
+- La velocita' angolare vera della formazione base e' costante (-2,88 gradi/s): non spiega l'andamento; con omega costante
+  un ritardo di inseguimento e un errore di orientamento fisso non si distinguono (ipotesi "ritardo" NON dimostrata).
+- Gli osservatori base ricevono il 98-99% dei pacchetti (dai base e dagli ospiti); il 91% complessivo comprende i
+  collegamenti lunghi tra ospiti.
+- **Attribuzione** (con gli ospiti, fase piu' pulita: dopo l'uscita l'errore e' uno stato ereditato): perdite degli
+  ospiti +1,49, perdite dirette dei base +1,10, insieme +2,42: quasi additive, **nessun colpevole unico**. Anche l'1-2%
+  di pacchetti persi dai base pesa: l'orientamento dello sciame sotto cattura e' debolmente vincolato (le distanze UWB
+  non lo vedono; lo ancorano solo le velocita' di bordo dell'8.2c), quindi ogni informazione persa conta.
+- **Interpretazione per il paper (da confermare su piu' seed):** il limite principale della direzione non sono le perdite
+  ma l'osservabilita' dell'orientamento; le perdite UWB lo amplificano. Con una formazione piu' larga la distanza diventa
+  osservabile (4.18) ma i collegamenti lunghi perdono pacchetti e la direzione peggiora: compromesso da mostrare.
+- **Da fare:** campagna 10 seed (Wi-Fi, UWB, UWB senza perdite) a S = 2, R = 500 m, per verificare in generale (tutto
+  visto su 1 seed). Poi decidere: (a) limite dichiarato; (b) ancoraggio dell'orientamento. Nella realta' una velocita'
+  nord/est dai sensori di bordo richiede gia' una rotta (bussola/magnetometro), quindi usare anche la rotta di ogni drone
+  sarebbe coerente con le ipotesi dell'8.2c. Va pero' modellato il suo errore (disturbi magnetici dei motori, ipotesi da
+  documentare con fonti).
+
+### 4.25 Campagna 10 seed sulla rotazione (S = 2, R = 500 m; PC di Jacopo) e causa della rotazione
+
+Configurazioni: Wi-Fi, UWB, UWB senza perdite (`--uwbSensDbm=-130`); colonne `rotazione_mediana_gradi` e
+`reale_azimut_fusione_gradi` di `aperture_sweep.py`.
+
+| seed | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | mediana |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| rotazione Wi-Fi | 1,99 | 3,46 | 8,35 | 2,77 | 1,56 | 3,38 | 3,44 | 1,36 | 7,57 | 6,97 | 3,41 |
+| rotazione UWB | 2,52 | 6,09 | 9,53 | 2,80 | 1,91 | 3,68 | 6,33 | 1,75 | 11,22 | 6,94 | 4,89 |
+| direzione Wi-Fi | 0,09 | 1,50 | 7,98 | 2,61 | 0,05 | 3,05 | 3,98 | 0,24 | 6,60 | 8,07 | 2,83 |
+| direzione UWB | 0,66 | 4,74 | 8,45 | 3,17 | 0,07 | 3,45 | 5,32 | 0,99 | 7,72 | 10,13 | 4,09 |
+
+- **UWB senza perdite = Wi-Fi in tutti i 10 seed** (identici al centesimo; riprodotto da Claude sul seed 2 con lo script
+  della campagna: 3,46 e 1,502 gradi). La radio UWB del simulatore filtra i pacchetti sullo stesso trasporto: senza
+  perdite coincide col Wi-Fi. **L'unica differenza tra le radio sono le perdite.**
+- **Correzione:** il valore Wi-Fi seed 2 "1,54 / 3,33 gradi" della 4.23 veniva da una run interrotta da un timeout
+  (container lento, riga "completato" assente): il valore giusto e' 1,50.
+- **Perdite UWB, test appaiati:** rotazione peggiore in 9/10 seed (Wilcoxon p = 0,004; differenza mediana +0,46,
+  media +1,19, max +3,65 gradi); direzione peggiore in 10/10 (p = 0,002; mediana +0,66 gradi). Effetto reale ma secondario.
+- **La direzione e' la rotazione del riferimento:** 20 run, Pearson r = 0,90, Spearman 0,92,
+  direzione ~ 1,00 x rotazione - 0,76 gradi.
+- **Il limite dominante c'e' anche in Wi-Fi:** 3 seed su 10 (3, 9, 10) sbagliano la direzione di 6,6-8,1 gradi. La
+  mediana su 10 seed (2,83 gradi in Wi-Fi) e' peggiore di quella su 5 (1,50): la campagna a 5 seed era ottimista.
+- **Causa della rotazione (oracoli, seed 9, Wi-Fi):** gli errori LENTI del sensore di velocita' di bordo (`ImuModel.h`:
+  bias 0,3 m/s con tau 30 s, scala 3% fissa per drone, bussola 3 gradi con tau 120 s), che il filtro tratta come rumore
+  bianco (approssimazione dichiarata nel codice, stessa lezione della 6.2). Integrati, spostano le posizioni; le distanze
+  UWB correggono la forma ma non la rotazione comune. Stesso seme in tutte le varianti -> stesso andamento con e senza
+  perdite (spiega la 4.24).
+
+| seed 9, Wi-Fi | rotazione | direzione | forma |
+|---|---|---|---|
+| default | 7,57 | 6,60 | 0,21 m |
+| senza bussola (`--imuHeadingDeg=0`) | 4,20 (p95 47,9: anomalo, da verificare) | 3,88 | 0,21 m |
+| senza errori lenti (`--imuVelBias=0 --imuScale=0 --imuHeadingDeg=0`) | **0,59** | **0,38** | **0,08 m** |
+
+- **Ritirata la proposta "ancorare con la bussola" (4.24):** la bussola e' gia' nel modello e orienta il singolo drone,
+  non la geometria tra i droni. Per osservare la rotazione della formazione servirebbe una misura di angolo tra droni
+  (es. AoA/PDoA UWB + rotta), da valutare con fonti.
+- **Conseguenze per il paper:** (1) la precisione di direzione dipende dalle ipotesi sul sensore di velocita' di bordo,
+  oggi "prudenti" ma NON documentate con fonti: servono fonti (optical flow, bussola su droni) e un'analisi di
+  sensibilita' (direzione contro entita' degli errori lenti); (2) possibili miglioramenti: stima della direzione nei
+  primi secondi dopo la cattura (rotazione ancora piccola: l'istantanea parte dal GPS buono), oppure modellare gli errori
+  lenti nel filtro; (3) le perdite UWB sono un effetto secondario da riportare (test appaiati sopra).
+
+### 4.26 Fase 5: errore UWB realistico (`--uwbError=real`, patch `add realistic uwb ranging error`)
+
+Modello (default `legacy` identico byte per byte: default seed 1 e UWB S = 2 con spoofer seed 1, 4 file su 4):
+- **Stato LOS/NLOS correlato** con la procedura di consistenza spaziale di 3GPP TR 38.901 (par. 7.6.3.1 e 7.6.3.3):
+  stato LOS = confronto tra una variabile spazialmente correlata e P_LOS(d). Per collegamento non orientato (stesso stato
+  nei due versi), funzione dello spostamento dei due estremi; correlazione 1/e a `--uwbCorrDist` (default 10 m = valore
+  3GPP indoor, il piu' piccolo; 3GPP non copre collegamenti tra droni: IPOTESI). P_LOS(d) = exp(-d/500) storica (IPOTESI).
+  Processo a nodi interpolati (non Gauss-Markov del primo ordine: con quello la durata degli episodi dipendeva dalla
+  frequenza dei pacchetti, 3,7 m -> 0,4 m di spostamento passando da 1 m a 1 cm di passo; a nodi ~11 m sempre).
+- **Bias NLOS fisso per episodio**, U(0,3; 2,5) m + jitter 0,5 m per messaggio: valori ereditati dal codice originale,
+  SENZA fonte (da sostituire con misure reali o letteratura).
+- **Rumore che cresce con la distanza:** sigma^2 = 0,10^2 + 0,25^2 x 10^(-margine/10), margine dal bilancio della Fase 3.
+  Forma motivata dal limite di Cramer-Rao del ToA (varianza ~ 1/SNR; Gezici et al., IEEE Signal Processing Magazine 2005)
+  e da riscontri pratici su DW1000 (errore quasi costante fino al limite di portata, poi in crescita: forum Qorvo,
+  fonte debole). sigma_bordo = 0,25 m = IPOTESI.
+- **Riconoscimento NLOS imperfetto:** falsi NLOS 5% per messaggio (indipendenti), episodi NLOS non rilevati 10% (per
+  intero: caso peggiore per il filtro). Coerente con accuratezze riportate per DW1000 dal 73% a oltre il 99% a seconda di
+  metodo e scenario (circa 95% in dinamico, Cwalina et al.; misure indoor). Il chip stima l'NLOS dalla differenza tra
+  potenza ricevuta e potenza del primo cammino (Decawave APS006 parte 3: < 6 dB probabile LOS, > 10 dB probabile NLOS).
+- Filtri: varianza dal bit DICHIARATO e dalla distanza misurata; NLOS = secondo momento del bias (conservativo).
+
+Risultati:
+- Verifica nel simulatore (seed 1, UWB, S = 2, spoofer): NLOS 7,4% dei messaggi, episodi medi 2,3 s, falsi NLOS 5,0%,
+  NLOS non rilevati 8,5% delle distanze; rumore LOS 7,3 cm (0-15 m) -> 18,8 cm (90-105 m); bias NLOS medio 1,3 m.
+- **Forma 0,201 -> 0,302 m (+50%)**, consenso sulla cattura invariato (20/20). Oracoli (seed 1, stesso codice dello
+  sciame, la correzione 9.1b tocca solo pps_log): rivelatore ideale 0,244 m, nessun NLOS 0,240 m -> circa 0,06 m dagli
+  episodi NLOS NON rilevati (bias persistente trattato come rumore), circa 0,04 m da rumore con la distanza e falsi NLOS.
+- S = 1, Wi-Fi, attacco interno (seed 1): rilevamento invariato (7/7, stessa latenza); chi-quadro oltre il 99,9%
+  0,17% -> 0,24%; errore relativo base p95 1,77 -> 1,89 m.
+- Direzione e distanza (seed 1): direzione 0,67 -> 0,37 gradi, distanza 44,5 m (100%) -> 29,8 m (87,5%). Su un seed
+  NON significativo: dominate dalla deriva dei sensori di bordo (4.25). Campagna 10 seed sul PC di Jacopo.
+
 ## 5. Threat model
 
 - **(a) Spoofer GNSS esterno** (caso principale): singola antenna, trasmette segnali GNSS falsi, non
@@ -464,6 +794,17 @@ in y). Analisi: `python3 tools/spoofer_view.py runs/<etichetta>/seed1 [--jitter-
 - Geolocalizzazione di uno spoofer dalla deriva di clock del ricevitore ingannato (UT Austin).
 - Tippenhauer et al., requisiti per uno spoofing GPS riuscito (ACM CCS 2011): una sola antenna fa vedere
   a piu' ricevitori la stessa posizione.
+- **Attacco esterno, paper:** Kerns, Shepard, Bhatti, Humphreys, "Unmanned Aircraft Capture and Control via GPS Spoofing",
+  J. Field Robotics, 2014; Shepard, Bhatti, Humphreys, Fansler, "Evaluation of Smart Grid and Civilian UAV Vulnerability
+  to GPS Spoofing Attacks", ION GNSS 2012; Shepard, Bhatti, Humphreys, "Drone Hack", GPS World 2012 (la cattura reale e'
+  graduale: fasi di codice allineate entro pochi metri a quelle vere); Humphreys et al., "Assessing the Spoofing Threat:
+  Development of a Portable GPS Civilian Spoofer", ION GNSS 2008 / GPS World 2009; Bhatti, Humphreys, "Hostile Control of
+  Ships via False GPS Signals: Demonstration and Detection", NAVIGATION 2017 (anno/sede da verificare su Scholar).
+- **Attacco esterno, casi reali:** White Sands 2012 (UAV catturato da ~1 km, su invito del DHS); yacht "White Rose of
+  Drachs" 2013; Mar Nero 2017 (>20 navi collocate tutte all'aeroporto di Gelendzhik: stessa posizione falsa per tutti,
+  rapporto US Maritime Administration del 22/6/2017); aviazione 2024 (centinaia di incidenti in Medio Oriente e Sud-est
+  asiatico; +400% secondo OPSGROUP).
+- **Modello radio UWB:** IEEE 802.15.4a channel model final report (Molisch et al., doc. 15-04-0662), CM5 outdoor LOS.
 - IEEE 802.15.4z (STS) e attacchi di riduzione della distanza su UWB HRP.
 - Misure ritardate / out-of-sequence nei filtri di Kalman (letteratura tracking, es. Bar-Shalom).
 
@@ -507,10 +848,21 @@ Incollare questo file e `ROADMAP.md`, poi dire: "riprendi dalla prossima fase". 
   - si possono unire piu' passi in una patch quando sono legati;
   - attenzione agli spazi a fine riga ereditati e ai file con CRLF (usare patch binaria se serve);
   - con `--netanim=1` il CSV differisce per arrotondamento: per gli esperimenti sempre `--netanim=0`.
-- Stato: strada A implementata (patch `add formation scale for the aperture study`), risultati preliminari su un
-  seed (4.17). Prossimo: campagna completa sul PC di Jacopo (S 1-4 x R 250/500/1000 x >= 5 seed), poi Fasi 3 + 5.
-  Aperti: direzione peggiore per alcuni osservatori (0, 2, 3, 6) e fusione delle stime; verifica hardware del PPS
-  (solo via cavo o in ambiente schermato: trasmettere segnali GNSS falsi via radio non e' consentito).
+- Stato (20/10): su GitHub tutto fino alla Fase 3 (radio UWB opzionale `--radio=uwb`, default Wi-Fi identico; membership
+  robusta alle perdite). Trovata la causa della direzione peggiore in UWB a S = 2 (4.21: finestra della retta tra orologi oltre mezzo
+  giro del contatore a 40 bit). Correzione consegnata (4.22) e confronto fatto (4.23): a S = 2 resta un errore di orientamento comune
+  causato dalle perdite UWB (oracolo). Diagnosi fatta (4.24: orientamento debolmente vincolato,
+  amplificato dalle perdite). Campagna 10 seed fatta (4.25): la rotazione viene dagli errori lenti dei
+  sensori di bordo; perdite UWB effetto secondario. Fase 5 consegnata (4.26). Simulatore: restano sensori di bordo con fonti,
+  configurazione del paper, punti minori, verifica finale (lista in cima alla ROADMAP)
+  (bozza gia' pronta e testata nell'ambiente di Claude, da riconsegnare dopo la correzione). Scadenze MobiSys
+  2027 ufficiali ancora TBA; aggregatore: abstract 27/11/2026, paper 4/12/2026 AoE (l'anno scorso 28/11 e 5/12). Il
+  bando chiede un abstract registrato di almeno 100 parole, coerente con quello finale. Parlare col relatore della
+  prova hardware (UWB + PPS, GNSS solo via cavo). Aperti: errore di orientamento comune nella direzione (4.19).
+- Quando si riprende in una nuova chat: aggiornare nel progetto Claude PAPER_NOTES.md e ROADMAP.md (prenderli dal repo).
+- Dopo `git am` di una patch che tocca il C++: SEMPRE `cd ~/ns-3-dev && ./ns3 build` prima di simulare (il 15/10 una
+  campagna e' fallita per una build vecchia). Il .gitignore ora ignora *.csv, *.png, *.xml, *.svg: per salvare figure o
+  risultati nel repo usare `git add -f`.
 - Lezione di metodo: guardare sempre anche p99 e massimo, non solo p95 (le divergenze brevi stavano sotto il p95).
 - Ambiente di Claude: una sola CPU, i processi in background vengono fermati tra un turno e l'altro. Lanciare
   le simulazioni in primo piano e cancellare subito i CSV. Le campagne a 3+ seed conviene farle sul PC di Jacopo.
