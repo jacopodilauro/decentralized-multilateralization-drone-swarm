@@ -42,7 +42,8 @@ sys.path.insert(0, TOOLS)
 
 LEVELS = {"A": (0.0, 0.0, 0.0), "B": (0.1, 0.01, 1.0), "C": (0.2, 0.02, 2.0), "D": (0.3, 0.03, 3.0)}
 COMMON = ["--netanim=0", "--verbose=1", "--setnGuests=0", "--formation=shell", "--spacing=12", "--shellSpeed=1",
-          "--radio=uwb", "--uwbError=real", "--gnss=receiver", "--setSimTime=240"]
+          "--radio=uwb", "--uwbError=real", "--gnss=receiver", "--setSimTime=240", "--anchorVel=gps"]
+# --anchorVel=gps (PAPER_NOTES 4.41): con la velocita' dell'EKF (storico) il filtro diverge con 30-50 droni
 T_ATTACK, T_MIX_IN, T_MIX_OUT = 100.0, 70.0, 140.0
 BIG = ("tdma_security_log.csv", "gnss_log.csv", "pps_log.csv", "ground_truth.csv", "uwb_log.csv")
 
@@ -269,7 +270,15 @@ def main():
     if not sim or not os.path.exists(sim):
         sys.exit("imposta SIM=/percorso/eseguibile del simulatore")
     sim = os.path.abspath(sim)
+    # Una cartella = una sola versione delle opzioni comuni: riprendere con opzioni diverse mescolerebbe run non
+    # confrontabili (le run gia' fatte vengono saltate guardando solo row.json)
+    cf = os.path.join(a.out, "opzioni_comuni.json")
+    if os.path.exists(cf) and json.load(open(cf)) != COMMON:
+        sys.exit(f"{a.out} contiene run con opzioni comuni diverse ({cf}): usa un'altra --out")
+    if not os.path.exists(cf) and done:
+        sys.exit(f"{a.out} contiene run senza {os.path.basename(cf)} (campagna precedente): usa un'altra --out")
     os.makedirs(a.out, exist_ok=True)
+    json.dump(COMMON, open(cf, "w"))
     t0, n_ok, n_err, rotto = time.time(), 0, 0, False
     # Ogni processo di lavoro fa UNA run e poi viene sostituito (max_tasks_per_child=1, richiede "spawn"): un processo
     # Python che ha analizzato un log di milioni di righe non restituisce tutta la memoria al sistema, e con i processi

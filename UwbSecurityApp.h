@@ -61,6 +61,10 @@ public:
     //   1 r:        R_i += u' Sigma_ancora u, test con S = P + Sigma_mittente
     //   2 consider: come r, e nel test anche la covarianza del bias dovuto alle ancore (lento)
     static void SetAnchorModel(int m) { s_anchorModel = m; }
+    // Velocita' con cui un'ancora viene riportata all'istante della misura condivisa:
+    //   false (ekf): quella del mio EKF sull'ancora (storico; anello chiuso, diverge con 30-50 droni)
+    //   true  (gps): quella dei GPS dichiarati dall'ancora su ~1,5 s (ClaimedVelocity), indipendente dagli EKF
+    static void SetAnchorVelGps(bool on) { s_anchorVelGps = on; }
     // Sensori di bordo indipendenti dal GPS (8.2c): sotto cattura ogni drone misura e annuncia la propria velocita'
     static void SetImu(bool on, const imu::Params& p) { s_imuOn = on; s_imuParams = p; }
     // Fase 3: radio UWB (pacchetti persi in funzione della distanza, UwbLink.h) invece del Wi-Fi in cui tutti
@@ -193,6 +197,7 @@ private:
     static uint32_t s_shareK;
     static bool     s_shareOldest;
     static int      s_anchorModel;
+    static bool     s_anchorVelGps;
     static bool         s_imuOn;
     static bool             s_uwbRadio;
     static uwblink::Params  s_linkParams;

@@ -29,6 +29,7 @@ double UwbSecurityApp::s_chi2Thr = 16.27;   // chi-quadro con 3 gradi di liberta
 uint32_t UwbSecurityApp::s_shareK = 10;
 bool UwbSecurityApp::s_shareOldest = true;
 int UwbSecurityApp::s_anchorModel = 2;
+bool UwbSecurityApp::s_anchorVelGps = false;
 bool UwbSecurityApp::s_imuOn = true;
 bool UwbSecurityApp::s_uwbRadio = false;
 uwblink::Params UwbSecurityApp::s_linkParams;
@@ -886,16 +887,22 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         if (!m_lastKnownGps.count(k) || !m_lastKnownTime.count(k)) continue;
 
         // Il range e' stato misurato da k all'istante tMeas: riporto l'ancora k a quell'istante.
-        // Velocita' di k: quella del mio EKF su k se c'e' (piu' stabile), altrimenti differenza di GPS.
+        // Velocita' di k: con --anchorVel=gps quella dei GPS dichiarati da k (~1,5 s, indipendente dagli EKF);
+        // con --anchorVel=ekf (storico) quella del mio EKF su k, altrimenti differenza di GPS. La velocita' dell'EKF
+        // dipende da ancore riportate allo stesso modo: anello chiuso che con 30-50 droni diverge.
         double tMeas = m_networkRangeTimes[k][senderId];
         Eigen::Vector3d peerGps = m_lastKnownGps[k];
         double dtAnchor = tMeas - m_lastKnownTime[k];
         if (std::fabs(dtAnchor) < 1.0) {
-            auto ekfK = m_ekfBank.find(k);
-            if (ekfK != m_ekfBank.end() && currentTime - m_ekfInitTime[k] > 1.0)
-                peerGps += ekfK->second.GetVelocity() * dtAnchor;
-            else if (m_lastKnownVelocity.count(k))
-                peerGps += m_lastKnownVelocity[k] * dtAnchor;
+            if (s_anchorVelGps) {
+                peerGps += ClaimedVelocity(k) * dtAnchor;
+            } else {
+                auto ekfK = m_ekfBank.find(k);
+                if (ekfK != m_ekfBank.end() && currentTime - m_ekfInitTime[k] > 1.0)
+                    peerGps += ekfK->second.GetVelocity() * dtAnchor;
+                else if (m_lastKnownVelocity.count(k))
+                    peerGps += m_lastKnownVelocity[k] * dtAnchor;
+            }
         }
 
         EKF::Msmnt peerData;

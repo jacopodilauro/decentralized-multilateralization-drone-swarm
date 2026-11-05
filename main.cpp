@@ -98,6 +98,8 @@ int main(int argc, char *argv[])
     std::string sharePolicy = "oldest";
     cmd.AddValue("shareK",      "Range condivisi per pacchetto", shareK);
     std::string anchorModel = "consider";
+    std::string anchorVel = "ekf";
+    cmd.AddValue("anchorVel", "Velocita' per riportare le ancore all'istante della misura: ekf (storico) | gps (GPS dichiarati)", anchorVel);
     cmd.AddValue("anchorModel", "Incertezza GPS delle ancore (con --gnss=receiver): fixed | r | consider", anchorModel);
     cmd.AddValue("sharePolicy", "Scelta dei range condivisi: nearest (piu' vicini) | oldest (rotazione)", sharePolicy);
     bool   spoof        = false;
@@ -157,6 +159,8 @@ int main(int argc, char *argv[])
     else if (anchorModel == "r") UwbSecurityApp::SetAnchorModel(1);
     else if (anchorModel == "consider") UwbSecurityApp::SetAnchorModel(2);
     else { std::cerr << "--anchorModel deve essere fixed, r oppure consider" << std::endl; return 1; }
+    if (anchorVel != "ekf" && anchorVel != "gps") { std::cerr << "--anchorVel deve essere ekf oppure gps" << std::endl; return 1; }
+    UwbSecurityApp::SetAnchorVelGps(anchorVel == "gps");
     if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging deve essere dstwr o toa" << std::endl; return 1; }
     UwbSecurityApp::SetRangingDsTwr(ranging == "dstwr");
 
