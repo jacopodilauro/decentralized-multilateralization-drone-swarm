@@ -34,8 +34,9 @@ if [[ -n "${NS3_PREFIX:-}" ]]; then
     NS="-I$NS3_PREFIX/include -L$LIBDIR -Wl,-rpath,$LIBDIR -Wl,--allow-shlib-undefined"
     run test_header  g++ -std=c++20 $NS tests/test_header.cc UwbHeader.cpp -lns$NS3_VER-network -lns$NS3_VER-core
     run test_channel g++ -std=c++20 $NS -I"$EIGEN_INC" tests/test_channel.cc UWBChannel.cpp -lns$NS3_VER-core
+    run test_uwblink_ns3 g++ -std=c++20 -O2 $NS tests/test_uwblink_ns3.cc -lns$NS3_VER-propagation -lns$NS3_VER-mobility -lns$NS3_VER-core
 else
-    echo "[test_header, test_channel] saltati: imposta NS3_PREFIX per eseguirli"
+    echo "[test_header, test_channel, test_uwblink_ns3] saltati: imposta NS3_PREFIX per eseguirli"
 fi
 
 rm -rf "$OUT"

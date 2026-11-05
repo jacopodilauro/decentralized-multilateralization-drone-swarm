@@ -11,7 +11,7 @@
 #include "ClockModel.h"
 #include "GnssModel.h"
 #include "ImuModel.h"
-#include "UwbLink.h"
+#include "UwbLinkNs3.h"
 #include "random"
 
 #include <Eigen/Dense>
@@ -70,7 +70,10 @@ public:
     // Fase 3: radio UWB (pacchetti persi in funzione della distanza, UwbLink.h) invece del Wi-Fi in cui tutti
     // ricevono tutto. Il trasporto resta lo stack Wi-Fi di ns-3: con TDMA e slot di 5 ms la durata dei pacchetti
     // (~0,5 ms a 6,8 Mbit/s con preambolo) non conta; qui si decide solo SE il pacchetto arriva
-    static void SetUwbRadio(bool on, const uwblink::Params& p) { s_uwbRadio = on; s_linkParams = p; }
+    // Radio UWB (Fase 3): potenza media da LogDistancePropagationLossModel di ns-3, ricezione da UwbLink.h
+    static void SetUwbRadio(bool on, const uwblink::Params& p) {
+        s_uwbRadio = on; s_linkParams = p; s_linkLoss = on ? uwblink::MakeNs3Loss(p) : nullptr;
+    }
     static void PrintLinkStats();
     // Fase 5: log di ogni DS-TWR (distanza vera al messaggio centrale, misurata, stato vero e dichiarato)
     static void SetUwbLog(const std::string& path);
@@ -201,6 +204,7 @@ private:
     static bool         s_imuOn;
     static bool             s_uwbRadio;
     static uwblink::Params  s_linkParams;
+    static ns3::Ptr<ns3::LogDistancePropagationLossModel> s_linkLoss;
     static uint64_t         s_linkTot[6], s_linkOk[6];   // per fasce di distanza di 30 m (l'ultima: oltre 150 m)
     std::mt19937_64         m_linkRng{ 11 };
     static imu::Params  s_imuParams;

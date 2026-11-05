@@ -33,6 +33,7 @@ bool UwbSecurityApp::s_anchorVelGps = false;
 bool UwbSecurityApp::s_imuOn = true;
 bool UwbSecurityApp::s_uwbRadio = false;
 uwblink::Params UwbSecurityApp::s_linkParams;
+Ptr<LogDistancePropagationLossModel> UwbSecurityApp::s_linkLoss;
 uint64_t UwbSecurityApp::s_linkTot[6] = { 0, 0, 0, 0, 0, 0 };
 uint64_t UwbSecurityApp::s_linkOk[6]  = { 0, 0, 0, 0, 0, 0 };
 
@@ -487,9 +488,11 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         ns3::Vector myPos = myMob->GetPosition();
 
         if (s_uwbRadio) {   // Fase 3: il pacchetto UWB arriva solo se il collegamento lo permette
-            ns3::Vector sp = NodeList::GetNode(senderId)->GetObject<MobilityModel>()->GetPosition();
+            Ptr<MobilityModel> senderMob = NodeList::GetNode(senderId)->GetObject<MobilityModel>();
+            ns3::Vector sp = senderMob->GetPosition();
             double dist = std::sqrt(std::pow(sp.x - myPos.x, 2) + std::pow(sp.y - myPos.y, 2) + std::pow(sp.z - myPos.z, 2));
-            bool ok = uwblink::Received(s_linkParams, dist, m_linkRng);
+            double meanRx = uwblink::MeanRxDbmNs3(s_linkLoss, s_linkParams, senderMob, myMob);
+            bool ok = uwblink::ReceivedAt(s_linkParams, meanRx, m_linkRng);
             int bin = std::min(5, (int)(dist / 30.0));
             s_linkTot[bin]++; if (ok) s_linkOk[bin]++;
             if (!ok) continue;

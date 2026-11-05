@@ -8,6 +8,8 @@
 // Con i default un pacchetto arriva con probabilita' 50% a ~85 m; con sensibilita' -90 dBm a ~23 m (portata riportata
 // in pratica da utenti DWM3000: 20-30 m). Il LOS/NLOS del collegamento e la correlazione dell'ombreggiamento sono della
 // Fase 5: qui l'ombreggiamento e' estratto a ogni pacchetto.
+// Nel simulatore la potenza media della ricezione viene da LogDistancePropagationLossModel di ns-3 (UwbLinkNs3.h); questo
+// file resta senza dipendenze da ns-3 per gli usi in cui si conosce solo una distanza e per tests/test_uwblink.cc.
 #include <cmath>
 #include <random>
 
@@ -37,13 +39,16 @@ inline double Range50(const Params& p) {
 }
 inline double Per(const Params& p, double rxDbm) { return 1.0 / (1.0 + std::exp((rxDbm - p.sensDbm) / p.widthDb)); }
 
-// Estrae se il pacchetto arriva (ombreggiamento indipendente per pacchetto)
+// Estrae se il pacchetto arriva, data la potenza media ricevuta (ombreggiamento indipendente per pacchetto)
 template <class RNG>
-bool Received(const Params& p, double d, RNG& rng) {
+bool ReceivedAt(const Params& p, double meanRxDbm, RNG& rng) {
     std::normal_distribution<double> n01(0.0, 1.0);
     std::uniform_real_distribution<double> u01(0.0, 1.0);
-    double rx = MeanRxDbm(p, d) + p.sigmaDb * n01(rng);
+    double rx = meanRxDbm + p.sigmaDb * n01(rng);
     return u01(rng) >= Per(p, rx);
 }
+// Come ReceivedAt, con la potenza media dalla distanza. Nel simulatore la potenza media viene da ns-3 (UwbLinkNs3.h)
+template <class RNG>
+bool Received(const Params& p, double d, RNG& rng) { return ReceivedAt(p, MeanRxDbm(p, d), rng); }
 
 }  // namespace uwblink
