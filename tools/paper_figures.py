@@ -8,7 +8,8 @@ e le tabelle LaTeX tab_mixed.tex e tab_scale.tex. Le figure 1-2 (architettura, p
 rifinire. Larghezze: colonna singola 3,33 in, doppia colonna 7 in (sigconf).
 
 Criterio "il sistema regge" (figura della griglia): attaccanti rilevati >= 90% E falsi allarmi sugli onesti dopo
-l'attacco <= 5% (mediana tra i seed), lo stesso del rapporto.
+l'attacco <= 5% (mediane tra i seed), lo stesso del rapporto; "fragile" = regge in mediana ma almeno un seed crolla
+(falsi allarmi > 50%, colonna `crollati` di tab1). Asse della griglia: frazione di attaccanti k/N.
 """
 import argparse
 import os
@@ -30,8 +31,35 @@ def setup():
     plt.rcParams.update({"font.size": 8, "axes.labelsize": 8, "legend.fontsize": 7, "xtick.labelsize": 7,
                          "ytick.labelsize": 7, "axes.grid": True, "grid.alpha": 0.3, "lines.linewidth": 1.2,
                          "lines.markersize": 3.5, "pdf.fonttype": 42, "ps.fonttype": 42, "savefig.bbox": "tight",
-                         "savefig.pad_inches": 0.02})
+                         "savefig.pad_inches": 0.02,
+                         "font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans"]})   # incluso in matplotlib:
+    # stesse figure su ogni macchina (senza, matplotlib sceglie il primo font di sistema disponibile)
     return plt
+
+
+def holds(t):
+    """Regge (mediane tra i seed); con un tab1 vecchio senza `rilevati_med` usa la media."""
+    ril = t.rilevati_med if "rilevati_med" in t else t.rilevati
+    return (ril >= 90) & (t.fa_med <= 5)
+
+
+def r_axis(ax):
+    """Asse della distanza dello spoofer: logaritmico con le tacche sulle distanze provate."""
+    from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
+    ax.set_xscale("log")
+    ax.xaxis.set_major_locator(FixedLocator([25, 50, 100, 200, 500, 1000]))
+    ax.xaxis.set_major_formatter(FixedFormatter(["25", "50", "100", "200", "500", "1000"]))
+    ax.xaxis.set_minor_locator(NullLocator())
+    ax.set_xlabel("spoofer distance R [m]")
+
+
+def log_y(ax, ticks):
+    """Asse verticale logaritmico con tacche in numeri semplici (1, 2, 5, 10, ...)."""
+    from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(FixedLocator(ticks))
+    ax.yaxis.set_major_formatter(FixedFormatter([f"{x:g}" for x in ticks]))
+    ax.yaxis.set_minor_locator(NullLocator())
 
 
 def save(fig, out, name, plt):
@@ -108,7 +136,8 @@ def fig_principle(out, plt):
 # ---------------------------------------------------------------- attaccanti interni
 def fig_insider_grid(t1, out, plt):
     t = t1.copy()
-    t["holds"] = (t.rilevati >= 90) & (t.fa_med <= 5)
+    t["holds"] = holds(t)
+    t["fragile"] = t.holds & (t.crollati > 0) if "crollati" in t else False
     full = t.groupby("N").seed.transform("max")
     t["complete"] = t.seed >= full
     Ns = [n for n in SIZES if n in set(t.N)]
@@ -118,27 +147,33 @@ def fig_insider_grid(t1, out, plt):
         tm = t[t["mode"] == mode]
         for _, r in tm.iterrows():
             c = "#009E73" if r.holds else "#D55E00"
-            ax.scatter(xi[r.N], r.k, marker="s", s=70, c=c if r.complete else "white", edgecolors=c, linewidths=1.2)
+            m = "^" if r.fragile else ("s" if r.holds else "X")
+            ax.scatter(xi[r.N], r.kN, marker=m, s=30, c=c if r.complete else "white", edgecolors=c, linewidths=1.0,
+                       zorder=3)
         xs = np.arange(len(Ns))
-        ax.plot(xs, [n - 5 for n in Ns], "k--", lw=0.9, label="k = N - 5")
-        ax.plot(xs, [n / 3 for n in Ns], ":", color="#555555", lw=0.9, label="k = N/3 (Byzantine voting)")
+        ax.plot(xs, [(n - 5) / n for n in Ns], "k--", lw=0.9, label="k = N - 5")
+        ax.plot(xs, [1 / 3] * len(Ns), ":", color="#555555", lw=0.9, label="k = N/3 (Byzantine voting)")
         ax.set_xticks(xs)
         ax.set_xticklabels([str(n) for n in Ns])
         ax.set_xlabel("swarm size N")
         ax.set_title(title, fontsize=8)
-        ax.set_ylim(0, max(t.k.max() + 1.5, 5))
-    axs[0].set_ylabel("insiders k")
+        ax.set_ylim(0, 0.66)
+    axs[0].set_ylabel("insider fraction k/N")
     from matplotlib.lines import Line2D
-    h = [Line2D([], [], marker="s", ls="", mfc="#009E73", mec="#009E73", ms=6, label="holds"),
-         Line2D([], [], marker="s", ls="", mfc="#D55E00", mec="#D55E00", ms=6, label="fails"),
-         Line2D([], [], marker="s", ls="", mfc="white", mec="#555555", ms=6, label="incomplete seeds")]
-    axs[1].legend(handles=h + axs[1].get_legend_handles_labels()[0], loc="upper left", fontsize=6)
+    h = [Line2D([], [], marker="s", ls="", mfc="#009E73", mec="#009E73", ms=4.5, label="holds"),
+         Line2D([], [], marker="^", ls="", mfc="#009E73", mec="#009E73", ms=4.5, label="holds, some seeds collapse"),
+         Line2D([], [], marker="X", ls="", mfc="#D55E00", mec="#D55E00", ms=4.5, label="fails")]
+    if not t.complete.all():
+        h.append(Line2D([], [], marker="s", ls="", mfc="white", mec="#555555", ms=4.5, label="incomplete seeds"))
+    hh = h + axs[1].get_legend_handles_labels()[0]   # legenda sopra i pannelli: dentro copriva i punti con N piccolo
+    fig.legend(handles=hh, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(hh), fontsize=6, frameon=False)
     return save(fig, out, "fig3_insider_grid", plt)
 
 
 def fig_insider_latency(t1, out, plt):
-    t = t1[(t1.k == 1) & (t1["mode"] == "indipendenti")].sort_values("N")
-    h = t1[(t1.rilevati >= 90) & (t1.fa_med <= 5)].groupby("N").latenza.agg(["min", "max"])
+    ok = t1[holds(t1)]
+    t = ok[(ok.k == 1) & (ok["mode"] == "indipendenti")].sort_values("N")   # solo dove il sistema regge
+    h = ok.groupby("N").latenza.agg(["min", "max"])
     fig, ax = plt.subplots(figsize=(W1, 1.9))
     ax.fill_between(h.index, h["min"], h["max"], color="#56B4E9", alpha=0.3, lw=0, label="all k where the system holds")
     ax.plot(t.N, t.latenza, "o-", color="#0072B2", label="one insider")
@@ -156,9 +191,8 @@ def fig_ext_lateral(t2, out, plt):
     for n, g in t.groupby("N"):
         g = g.sort_values("R")
         ax.plot(g.R, g.laterale, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("spoofer distance R [m]")
+    r_axis(ax)
+    log_y(ax, [1, 2, 5, 10, 20, 50])
     ax.set_ylabel("cross-range error [m]")
     ax.legend(ncol=2, fontsize=6)
     return save(fig, out, "fig5_spoofer_bearing", plt)
@@ -176,13 +210,13 @@ def fig_ext_range(t2, out, plt):
     axs[0].set_ylabel("range resolved (error < R/2) [%]")
     axs[0].set_ylim(-3, 103)
     axs[1].set_ylabel("range error / R [%]")
-    axs[1].set_yscale("log")
+    log_y(axs[1], [2, 5, 10, 20, 50, 100, 200])
     axs[1].text(0.02, 0.95, "solid: estimated (where resolved in >= 50%)\ndotted: geometric bound (true positions, true PPS)",
                 transform=axs[1].transAxes, va="top", fontsize=6)
     for ax in axs:
-        ax.set_xscale("log")
-        ax.set_xlabel("spoofer distance R [m]")
-    axs[0].legend(ncol=2, fontsize=6)
+        r_axis(ax)
+    h, l = axs[0].get_legend_handles_labels()   # legenda sopra i pannelli: dentro copriva le curve con 30-50 droni
+    fig.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(l), fontsize=6, frameon=False)
     return save(fig, out, "fig6_spoofer_range", plt)
 
 
@@ -200,9 +234,9 @@ def fig_sensors(t2, out, plt):
     axs[1].set_ylabel("range resolved [%]")
     axs[1].set_ylim(-3, 103)
     for ax in axs:
-        ax.set_xscale("log")
-        ax.set_xlabel("spoofer distance R [m]")
-    axs[1].legend(fontsize=6)
+        r_axis(ax)
+    h, l = axs[1].get_legend_handles_labels()   # legenda sopra i pannelli: dentro copriva la curva N = 20 a 200 m
+    fig.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(l), fontsize=6, frameon=False)
     return save(fig, out, "fig7_onboard_sensors", plt)
 
 

@@ -23,6 +23,12 @@ COLORS = {n: f"C{i}" for i, n in enumerate(SIZES)}
 MODES = ("coordinati", "indipendenti")
 
 
+def holds(t):
+    """Il sistema regge: attaccanti rilevati >= 90% e falsi allarmi sugli onesti <= 5%, mediane tra i seed (la media dei
+    rilevati e' trascinata giu' da pochi seed crollati, PAPER_NOTES 4.44)."""
+    return (t.rilevati_med >= 90) & (t.fa_med <= 5)
+
+
 def load(out, exp):
     p = os.path.join(out, exp, "risultati.csv")
     if not os.path.exists(p):
@@ -91,6 +97,8 @@ def report_interni(d, rep, plt):
     for (n, k, mode), g in d.groupby(["N", "k", "mode"]):
         rows.append(dict(N=n, k=k, mode=mode, kN=k / n, seed=len(g),
                          rilevati=g.attaccanti_rilevati_pct.mean(),
+                         rilevati_med=g.attaccanti_rilevati_pct.median(),
+                         crollati=int((g[fa] > 50).sum()),
                          latenza=g.latenza_rilevamento_s.median(),
                          fa_med=g[fa].median(), fa_q3=q(g[fa], 75),
                          err_med=g[er].median(), err_q3=q(g[er], 75),
@@ -156,12 +164,23 @@ def report_interni(d, rep, plt):
         tm = t_c[t_c["mode"] == mode]
         parts = []
         for n, g in tm.groupby("N"):
-            ok = g[(g.rilevati >= 90) & (g.fa_med <= 5)]
-            kmax = ok.kN.max() if len(ok) else None
-            parts.append(f"N = {n}: {'per nessun k' if kmax is None else f'fino a k/N = {kmax:.2f}'}")
+            g = g.sort_values("k")
+            ok = g[holds(g)]
+            if not len(ok):
+                parts.append(f"N = {n}: per nessun k")
+                continue
+            r = ok.iloc[-1]
+            txt = f"N = {n}: fino a k/N = {r.kN:.2f}"
+            if r.crollati:
+                txt += f" (ma {r.crollati}/{r.seed} seed crollati)"
+            nxt = g[g.k > r.k]
+            if len(nxt) and nxt.iloc[0].k - r.k > 1:   # vuoto nella griglia: il limite vero e' tra i due k provati
+                txt += f" (k da {r.k + 1} a {nxt.iloc[0].k - 1} non provati: il limite e' tra k/N = {r.kN:.2f} e {nxt.iloc[0].kN:.2f})"
+            parts.append(txt)
         obs.append(f"- Attaccanti **{mode}**: il sistema funziona (attaccanti rilevati >= 90% E falsi allarmi sugli "
-                   f"onesti <= 5%) " + "; ".join(parts) + ". Rilevare tutti gli attaccanti non basta se si accusano "
-                   f"anche gli onesti: le due condizioni vanno lette insieme (Figure 1 e 2).")
+                   f"onesti <= 5%, mediane tra i seed; crollato = seed con falsi allarmi > 50%) " + "; ".join(parts) +
+                   ". Rilevare tutti gli attaccanti non basta se si accusano anche gli onesti: le due condizioni vanno "
+                   "lette insieme (Figure 1 e 2).")
     one = t[t.k == 1]
     if len(one):
         bad = one[one.fa_med > 5]
@@ -204,12 +223,14 @@ def report_interni(d, rep, plt):
            "*Figura 3.* Errore di stima dei droni onesti (scala logaritmica).", "",
            "![latenza](fig4_interni_latenza.png)", "",
            "*Figura 4.* Latenza di rilevamento con un attaccante (mediana, barre 25-75 percentile).", "",
-           "*Tabella 1.* Per configurazione: seed, attaccanti rilevati (media %), latenza mediana, falsi allarmi sugli "
-           "onesti (mediana e 75 percentile), errore degli onesti (mediana e 75 percentile), falsi allarmi prima "
-           "dell'attacco.", "",
-           md_table(t, ["N", "k", "mode", "kN", "seed", "rilevati", "latenza", "fa_med", "fa_q3", "err_med", "err_q3", "fa_pre"],
-                    ["N", "k", "modalita'", "k/N", "seed", "rilevati %", "latenza s", "FA onesti %", "FA p75 %",
-                     "errore m", "errore p75 m", "FA pre %"], [None, None, None, 2, None, 0, 2, 2, 2, 2, 2, 2]), ""]
+           "*Tabella 1.* Per configurazione: seed, attaccanti rilevati (media e mediana %), seed crollati (falsi allarmi "
+           "sugli onesti > 50%), latenza mediana, falsi allarmi sugli onesti (mediana e 75 percentile), errore degli "
+           "onesti (mediana e 75 percentile), falsi allarmi prima dell'attacco.", "",
+           md_table(t, ["N", "k", "mode", "kN", "seed", "rilevati", "rilevati_med", "crollati", "latenza", "fa_med", "fa_q3",
+                        "err_med", "err_q3", "fa_pre"],
+                    ["N", "k", "modalita'", "k/N", "seed", "rilevati %", "rilevati med %", "crollati", "latenza s",
+                     "FA onesti %", "FA p75 %", "errore m", "errore p75 m", "FA pre %"],
+                    [None, None, None, 2, None, 0, 0, None, 2, 2, 2, 2, 2, 2]), ""]
     return txt
 
 
