@@ -71,7 +71,8 @@ def configs(profile, exps):
         if "interni" in exps:
             ks = k_values(n)
             if profile == "completo" and n >= 50:
-                ks = [k for k in ks if k in (1, 3) or k >= round(n / 3.0)]
+                # costo: con 50 droni non tutti i k; 8 e 12 (16%, 24%) chiudono il vuoto tra 3 e 17 (PAPER_NOTES 4.44)
+                ks = sorted({k for k in ks if k in (1, 3) or k >= round(n / 3.0)} | {8, 12})
             for k in ks:
                 for mode in ("coordinati", "indipendenti"):
                     if profile == "prova" and not ((n == 5 and mode == "indipendenti") or (n == 8 and k == 1 and mode == "coordinati")):
