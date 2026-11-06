@@ -21,6 +21,16 @@ SIZES = [5, 6, 8, 12, 20, 30, 50]
 OKABE = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#0072B2", "#D55E00", "#000000"]
 COL = dict(zip(SIZES, OKABE))
 MARK = dict(zip(SIZES, ["o", "s", "^", "D", "v", "P", "X"]))
+# Bianco e nero: ogni N ha forma E riempimento propri (pieno / vuoto alternati), le linee del limite i marcatori piccoli vuoti
+HOLLOW = {5, 12, 30}
+
+
+def mk(n, small=False):
+    """Stile del marcatore di N: forma, colore, pieno o vuoto (leggibile anche stampato in bianco e nero)."""
+    c = COL.get(n, "k")
+    hollow = small or n in HOLLOW
+    return dict(marker=MARK.get(n, "o"), color=c, mec=c, mfc="white" if hollow else c, ms=2.6 if small else 3.8,
+                mew=0.8 if small else 1.0)
 W1, W2 = 3.33, 7.0
 
 
@@ -143,30 +153,39 @@ def fig_insider_grid(t1, out, plt):
     Ns = [n for n in SIZES if n in set(t.N)]
     xi = {n: i for i, n in enumerate(Ns)}
     fig, axs = plt.subplots(1, 2, figsize=(W2, 2.4), sharey=True)
-    for ax, mode, title in zip(axs, ("coordinati", "indipendenti"), ("coordinated insiders", "independent insiders")):
+    # tre stati distinguibili anche in bianco e nero: pieno = regge, righe diagonali = regge ma qualche seed crolla,
+    # quadretti = cede; quadrato vuoto senza texture = seed incompleti
+    style = {"holds": dict(c="#009E73", ec="#009E73", hatch=None),
+             "fragile": dict(c="white", ec="#009E73", hatch="//////"),
+             "fails": dict(c="white", ec="#D55E00", hatch="xxxxxx")}
+    plt.rcParams["hatch.linewidth"] = 0.6
+    for ax, mode, title in zip(axs, ("coordinati", "indipendenti"), ("(a) coordinated insiders", "(b) independent insiders")):
         tm = t[t["mode"] == mode]
         for _, r in tm.iterrows():
-            c = "#009E73" if r.holds else "#D55E00"
-            m = "^" if r.fragile else ("s" if r.holds else "X")
-            ax.scatter(xi[r.N], r.kN, marker=m, s=30, c=c if r.complete else "white", edgecolors=c, linewidths=1.0,
-                       zorder=3)
+            st = style["fragile" if r.fragile else ("holds" if r.holds else "fails")]
+            face = st["c"] if r.complete else "white"
+            ax.scatter(xi[r.N], r.k, marker="s", s=34, c=face, edgecolors=st["ec"], linewidths=0.9,
+                       hatch=st["hatch"] if r.complete else None, zorder=3)
         xs = np.arange(len(Ns))
-        ax.plot(xs, [(n - 5) / n for n in Ns], "k--", lw=0.9, label="k = N - 5")
-        ax.plot(xs, [1 / 3] * len(Ns), ":", color="#555555", lw=0.9, label="k = N/3 (Byzantine voting)")
+        ok = [i for i, n in enumerate(Ns) if n - 5 >= 1]   # k = N - 5 vale almeno 1 (asse logaritmico)
+        ax.plot([xs[i] for i in ok], [Ns[i] - 5 for i in ok], "k--", lw=0.9, label="k = N - 5")
+        ax.plot(xs, [n / 3 for n in Ns], ":", color="#555555", lw=1.0, label="k = N/3 (Byzantine voting)")
         ax.set_xticks(xs)
         ax.set_xticklabels([str(n) for n in Ns])
         ax.set_xlabel("swarm size N")
         ax.set_title(title, fontsize=8)
-        ax.set_ylim(0, 0.66)
-    axs[0].set_ylabel("insider fraction k/N")
-    from matplotlib.lines import Line2D
-    h = [Line2D([], [], marker="s", ls="", mfc="#009E73", mec="#009E73", ms=4.5, label="holds"),
-         Line2D([], [], marker="^", ls="", mfc="#009E73", mec="#009E73", ms=4.5, label="holds, some seeds collapse"),
-         Line2D([], [], marker="X", ls="", mfc="#D55E00", mec="#D55E00", ms=4.5, label="fails")]
+        log_y(ax, [1, 2, 3, 5, 10, 20])
+        ax.set_ylim(0.75, 40)
+    axs[0].set_ylabel("insiders k")
+    from matplotlib.patches import Patch
+    h = [Patch(facecolor="#009E73", edgecolor="#009E73", label="holds"),
+         Patch(facecolor="white", edgecolor="#009E73", hatch="//////", label="holds, some seeds collapse"),
+         Patch(facecolor="white", edgecolor="#D55E00", hatch="xxxxxx", label="fails")]
     if not t.complete.all():
-        h.append(Line2D([], [], marker="s", ls="", mfc="white", mec="#555555", ms=4.5, label="incomplete seeds"))
-    hh = h + axs[1].get_legend_handles_labels()[0]   # legenda sopra i pannelli: dentro copriva i punti con N piccolo
-    fig.legend(handles=hh, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(hh), fontsize=6, frameon=False)
+        h.append(Patch(facecolor="white", edgecolor="#555555", label="incomplete seeds"))
+    # legenda dentro il pannello (a), in alto a sinistra: li' non ci sono dati (con N <= 8 si arriva a k = 4)
+    axs[0].legend(handles=h + axs[0].get_legend_handles_labels()[0], loc="upper left", fontsize=5.5,
+                  framealpha=0.95, handlelength=1.6)
     return save(fig, out, "fig3_insider_grid", plt)
 
 
@@ -175,12 +194,13 @@ def fig_insider_latency(t1, out, plt):
     t = ok[(ok.k == 1) & (ok["mode"] == "indipendenti")].sort_values("N")   # solo dove il sistema regge
     h = ok.groupby("N").latenza.agg(["min", "max"])
     fig, ax = plt.subplots(figsize=(W1, 1.9))
-    ax.fill_between(h.index, h["min"], h["max"], color="#56B4E9", alpha=0.3, lw=0, label="all k where the system holds")
-    ax.plot(t.N, t.latenza, "o-", color="#0072B2", label="one insider")
+    ax.fill_between(h.index, h["min"], h["max"], facecolor="white", edgecolor="#56B4E9", hatch="////", lw=0.6,
+                    label="all k where the system holds")
+    ax.plot(t.N, t.latenza, "-", color="#0072B2", marker="o", mfc="#0072B2", label="one insider")
     ax.set_xlabel("swarm size N")
     ax.set_ylabel("detection latency [s]")
     ax.set_ylim(0, None)
-    ax.legend(fontsize=6)
+    ax.legend(fontsize=6, loc="lower right", framealpha=0.95)
     return save(fig, out, "fig4_insider_latency", plt)
 
 
@@ -190,11 +210,11 @@ def fig_ext_lateral(t2, out, plt):
     fig, ax = plt.subplots(figsize=(W1, 2.1))
     for n, g in t.groupby("N"):
         g = g.sort_values("R")
-        ax.plot(g.R, g.laterale, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}")
+        ax.plot(g.R, g.laterale, label=f"N = {n}", **mk(n))
     r_axis(ax)
     log_y(ax, [1, 2, 5, 10, 20, 50])
     ax.set_ylabel("cross-range error [m]")
-    ax.legend(ncol=2, fontsize=6)
+    ax.legend(ncol=2, fontsize=6, loc="upper left", framealpha=0.95)
     return save(fig, out, "fig5_spoofer_bearing", plt)
 
 
@@ -203,20 +223,24 @@ def fig_ext_range(t2, out, plt):
     fig, axs = plt.subplots(1, 2, figsize=(W2, 2.1))
     for n, g in t.groupby("N"):
         g = g.sort_values("R")
-        axs[0].plot(g.R, g.determinata, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}")
+        axs[0].plot(g.R, g.determinata, label=f"N = {n}", **mk(n))
         gg = g[g.determinata >= 50]
-        axs[1].plot(gg.R, gg.dist_rel, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}")
-        axs[1].plot(g.R, g.ideale_dist_rel, ls=":", color=COL.get(n, "k"), lw=0.9)
+        axs[1].plot(gg.R, gg.dist_rel, label=f"N = {n}", **mk(n))
+        axs[1].plot(g.R, g.ideale_dist_rel, ls=":", lw=0.8, **mk(n, small=True))   # limite: marcatori piccoli vuoti
     axs[0].set_ylabel("range resolved (error < R/2) [%]")
-    axs[0].set_ylim(-3, 103)
+    axs[0].set_ylim(-34, 103)   # fascia sotto lo 0 per la legenda, dentro gli assi e lontana dai dati
+    axs[0].set_yticks([0, 20, 40, 60, 80, 100])
     axs[1].set_ylabel("range error / R [%]")
     log_y(axs[1], [2, 5, 10, 20, 50, 100, 200])
     axs[1].text(0.02, 0.95, "solid: estimated (where resolved in >= 50%)\ndotted: geometric bound (true positions, true PPS)",
                 transform=axs[1].transAxes, va="top", fontsize=6)
     for ax in axs:
         r_axis(ax)
-    h, l = axs[0].get_legend_handles_labels()   # legenda sopra i pannelli: dentro copriva le curve con 30-50 droni
-    fig.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(l), fontsize=6, frameon=False)
+    axs[0].axhline(-3, color="#999999", lw=0.5)
+    # legenda dentro (a), nella fascia sotto lo 0: in alto copriva le curve con 30-50 droni
+    axs[0].legend(ncol=4, fontsize=5.5, loc="lower center", framealpha=0.95, columnspacing=0.8, handletextpad=0.3)
+    axs[0].set_title("(a)", fontsize=8)
+    axs[1].set_title("(b)", fontsize=8)
     return save(fig, out, "fig6_spoofer_range", plt)
 
 
@@ -228,15 +252,20 @@ def fig_sensors(t2, out, plt):
     for n in nd:
         for lev, ls, lab in (("B", "-", "good sensors"), ("D", "--", "poor sensors")):
             g = t2[(t2.N == n) & (t2.livello == lev)].sort_values("R")
-            axs[0].plot(g.R, g.dir_w20, ls=ls, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}, {lab}")
-            axs[1].plot(g.R, g.determinata, ls=ls, marker=MARK.get(n, "o"), color=COL.get(n, "k"), label=f"N = {n}, {lab}")
+            st = mk(n)
+            if lev == "D":
+                st["mfc"] = "white"   # sensori scarsi: tratteggio E marcatore vuoto (bianco e nero)
+            axs[0].plot(g.R, g.dir_w20, ls=ls, label=f"N = {n}, {lab}", **st)
+            axs[1].plot(g.R, g.determinata, ls=ls, label=f"N = {n}, {lab}", **st)
     axs[0].set_ylabel("bearing error [deg]")
     axs[1].set_ylabel("range resolved [%]")
     axs[1].set_ylim(-3, 103)
     for ax in axs:
         r_axis(ax)
-    h, l = axs[1].get_legend_handles_labels()   # legenda sopra i pannelli: dentro copriva la curva N = 20 a 200 m
-    fig.legend(h, l, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(l), fontsize=6, frameon=False)
+    axs[0].set_ylim(0, 10.5)   # spazio in alto a destra per la legenda, dentro gli assi e senza dati
+    axs[0].legend(fontsize=5.5, loc="upper right", framealpha=0.95)
+    axs[0].set_title("(a)", fontsize=8)
+    axs[1].set_title("(b)", fontsize=8)
     return save(fig, out, "fig7_onboard_sensors", plt)
 
 
