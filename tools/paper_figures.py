@@ -20,6 +20,12 @@ import pandas as pd
 SIZES = [5, 6, 8, 12, 20, 30, 50]
 OKABE = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#0072B2", "#D55E00", "#000000"]
 COL = dict(zip(SIZES, OKABE))
+# Colori delle figure degli interni (griglia e latenza); --stile matlab li sostituisce
+PAL = dict(hold="#009E73", fail="#D55E00", line="#0072B2", band="#56B4E9", ref="#555555")
+# Stile MATLAB (--stile matlab): ordine dei colori di MATLAB R2014b+, riquadro chiuso, tacche verso l'interno su
+# tutti i lati, griglia chiara, legenda con cornice, font con le metriche di Helvetica (Liberation Sans, TrueType)
+MATLAB_COL = dict(zip(SIZES, ["#EDB120", "#4DBEEE", "#77AC30", "#7E2F8E", "#0072BD", "#D95319", "#A2142F"]))
+MATLAB_PAL = dict(hold="#0072BD", fail="#D95319", line="#0072BD", band="#4DBEEE", ref="#404040")
 MARK = dict(zip(SIZES, ["o", "s", "^", "D", "v", "P", "X"]))
 # Bianco e nero: ogni N ha forma E riempimento propri (pieno / vuoto alternati), le linee del limite i marcatori piccoli vuoti
 HOLLOW = {5, 12, 30}
@@ -34,7 +40,7 @@ def mk(n, small=False):
 W1, W2 = 3.33, 7.0
 
 
-def setup():
+def setup(stile="default"):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -44,6 +50,15 @@ def setup():
                          "savefig.pad_inches": 0.02,
                          "font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans"]})   # incluso in matplotlib:
     # stesse figure su ogni macchina (senza, matplotlib sceglie il primo font di sistema disponibile)
+    if stile == "matlab":
+        COL.update(MATLAB_COL); PAL.update(MATLAB_PAL)
+        plt.rcParams.update({"font.sans-serif": ["Liberation Sans", "Arial", "Helvetica", "DejaVu Sans"],
+                             "axes.edgecolor": "#262626", "axes.linewidth": 0.6, "axes.grid": True,
+                             "grid.color": "#262626", "grid.alpha": 0.15, "grid.linewidth": 0.5, "grid.linestyle": "-",
+                             "xtick.direction": "in", "ytick.direction": "in", "xtick.top": True, "ytick.right": True,
+                             "xtick.major.width": 0.6, "ytick.major.width": 0.6, "xtick.color": "#262626",
+                             "ytick.color": "#262626", "legend.fancybox": False, "legend.edgecolor": "#262626",
+                             "legend.framealpha": 1.0, "patch.linewidth": 0.6})
     return plt
 
 
@@ -155,9 +170,9 @@ def fig_insider_grid(t1, out, plt):
     fig, axs = plt.subplots(1, 2, figsize=(W2, 2.4), sharey=True)
     # tre stati distinguibili anche in bianco e nero: pieno = regge, righe diagonali = regge ma qualche seed crolla,
     # quadretti = cede; quadrato vuoto senza texture = seed incompleti
-    style = {"holds": dict(c="#009E73", ec="#009E73", hatch=None),
-             "fragile": dict(c="white", ec="#009E73", hatch="//////"),
-             "fails": dict(c="white", ec="#D55E00", hatch="xxxxxx")}
+    style = {"holds": dict(c=PAL["hold"], ec=PAL["hold"], hatch=None),
+             "fragile": dict(c="white", ec=PAL["hold"], hatch="//////"),
+             "fails": dict(c="white", ec=PAL["fail"], hatch="xxxxxx")}
     plt.rcParams["hatch.linewidth"] = 0.6
     for ax, mode, title in zip(axs, ("coordinati", "indipendenti"), ("(a) coordinated insiders", "(b) independent insiders")):
         tm = t[t["mode"] == mode]
@@ -169,7 +184,7 @@ def fig_insider_grid(t1, out, plt):
         xs = np.arange(len(Ns))
         ok = [i for i, n in enumerate(Ns) if n - 5 >= 1]   # k = N - 5 vale almeno 1 (asse logaritmico)
         ax.plot([xs[i] for i in ok], [Ns[i] - 5 for i in ok], "k--", lw=0.9, label="k = N - 5")
-        ax.plot(xs, [n / 3 for n in Ns], ":", color="#555555", lw=1.0, label="k = N/3 (Byzantine voting)")
+        ax.plot(xs, [n / 3 for n in Ns], ":", color=PAL["ref"], lw=1.0, label="k = N/3 (Byzantine voting)")
         ax.set_xticks(xs)
         ax.set_xticklabels([str(n) for n in Ns])
         ax.set_xlabel("swarm size N")
@@ -178,9 +193,9 @@ def fig_insider_grid(t1, out, plt):
         ax.set_ylim(0.75, 40)
     axs[0].set_ylabel("insiders k")
     from matplotlib.patches import Patch
-    h = [Patch(facecolor="#009E73", edgecolor="#009E73", label="holds"),
-         Patch(facecolor="white", edgecolor="#009E73", hatch="//////", label="holds, some seeds collapse"),
-         Patch(facecolor="white", edgecolor="#D55E00", hatch="xxxxxx", label="fails")]
+    h = [Patch(facecolor=PAL["hold"], edgecolor=PAL["hold"], label="holds"),
+         Patch(facecolor="white", edgecolor=PAL["hold"], hatch="//////", label="holds, some seeds collapse"),
+         Patch(facecolor="white", edgecolor=PAL["fail"], hatch="xxxxxx", label="fails")]
     if not t.complete.all():
         h.append(Patch(facecolor="white", edgecolor="#555555", label="incomplete seeds"))
     # legenda dentro il pannello (a), in alto a sinistra: li' non ci sono dati (con N <= 8 si arriva a k = 4)
@@ -194,9 +209,9 @@ def fig_insider_latency(t1, out, plt):
     t = ok[(ok.k == 1) & (ok["mode"] == "indipendenti")].sort_values("N")   # solo dove il sistema regge
     h = ok.groupby("N").latenza.agg(["min", "max"])
     fig, ax = plt.subplots(figsize=(W1, 1.9))
-    ax.fill_between(h.index, h["min"], h["max"], facecolor="white", edgecolor="#56B4E9", hatch="////", lw=0.6,
+    ax.fill_between(h.index, h["min"], h["max"], facecolor="white", edgecolor=PAL["band"], hatch="////", lw=0.6,
                     label="all k where the system holds")
-    ax.plot(t.N, t.latenza, "-", color="#0072B2", marker="o", mfc="#0072B2", label="one insider")
+    ax.plot(t.N, t.latenza, "-", color=PAL["line"], marker="o", mfc=PAL["line"], label="one insider")
     ax.set_xlabel("swarm size N")
     ax.set_ylabel("detection latency [s]")
     ax.set_ylim(0, None)
@@ -294,9 +309,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", default="runs/paper/report")
     ap.add_argument("--out", default="runs/paper/figures")
+    ap.add_argument("--stile", choices=["default", "matlab"], default="default",
+                    help="matlab: aspetto di MATLAB, stessi nomi di file (per una cartella alternativa, es. matlab/)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    plt = setup()
+    plt = setup(a.stile)
     made = [fig_architecture(a.out, plt), fig_principle(a.out, plt)]
     rd = lambda n: pd.read_csv(os.path.join(a.report, n)) if os.path.exists(os.path.join(a.report, n)) else None  # noqa: E731
     t1, t2, t3, t4 = rd("tab1_interni.csv"), rd("tab2_esterno.csv"), rd("tab3_misto.csv"), rd("tab4_scala.csv")
