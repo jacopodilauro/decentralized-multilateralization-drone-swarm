@@ -266,7 +266,11 @@ inline void AlarmObserver(double t, int target, int observer, bool on) {
     bool isOn = !acc.empty();
     if (isOn && !wasOn) {
         bool liar = IsLiar(target, t);
-        bool onset = !liar && s.spoofS >= 0 && t >= s.spoofS && s.firstConsensus < 0;
+        // Transitorio dello spoofer: allarme su un onesto nato dopo l'avvio dello spoofer e prima del consenso sulla
+        // cattura, o entro ONSET_GRACE_S dal primo consenso (gli allarmi maturano nello stesso istante del consenso)
+        const double ONSET_GRACE_S = 2.0;
+        bool onset = !liar && s.spoofS >= 0 && t >= s.spoofS
+                     && (s.firstConsensus < 0 || t <= s.firstConsensus + ONSET_GRACE_S);
         s.openEp[target] = s.episodes.size();
         s.episodes.push_back({ target, t, -1.0, liar, onset });
         if (liar && !s.detected.count(target)) {
@@ -340,7 +344,8 @@ inline void ScenarioSummary(uint32_t nConsensus, uint32_t nDrones, const std::ve
     Json("false_alarm_drones", "[" + faJs + "]");
     std::sort(onset.begin(), onset.end()); onset.erase(std::unique(onset.begin(), onset.end()), onset.end());
     if (!onset.empty()) top.emplace_back("spoofer onset", "drone" + std::string(onset.size() > 1 ? "s " : " ") + IdList(onset)
-                                         + " alarmed before any capture consensus");
+                                         + (s.firstConsensus < 0 ? " alarmed, no capture consensus"
+                                                                 : " briefly alarmed around the capture consensus"));
     if (s.spoofS >= 0)
         top.emplace_back("capture", nConsensus == 0 ? "no capture consensus" :
                          std::to_string(nConsensus) + "/" + std::to_string(nDrones) + " drones, first consensus "

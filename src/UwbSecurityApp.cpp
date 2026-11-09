@@ -82,8 +82,8 @@ static constexpr double FIT_RMS_MAX_M = 10.0;
 
 void UwbSecurityApp::PrintPpsStats() {
     if (!s_ppsLog.is_open()) return;
-    ui::Summary("PPS", std::to_string(s_ppsRejected[2]) + " differences computed, " + std::to_string(s_ppsRejected[1])
-                + " rejected (line-fit residual > " + ui::Num(FIT_RMS_MAX_M) + " m)");
+    ui::Summary("PPS", std::to_string(s_ppsRejected[2]) + " differences, " + std::to_string(s_ppsRejected[1])
+                + " rejected (fit residual > " + ui::Num(FIT_RMS_MAX_M) + " m)");
     ui::Json("pps_differences", std::to_string(s_ppsRejected[2]));
     ui::Json("pps_rejected", std::to_string(s_ppsRejected[1]));
 }
