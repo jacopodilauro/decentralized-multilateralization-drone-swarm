@@ -80,6 +80,10 @@ public:
     // PPS del ricevitore GNSS (9.1): dente di sega uniforme +-sawtooth (quantizzazione, compensabile con qErr) +
     // rumore gaussiano residuo; log delle differenze di PPS per osservatore (pps_log.csv)
     static void SetPps(double sawtoothNs, double noiseNs, const std::string& logPath);
+    // Sensibilita' all'ipotesi sul PPS (PAPER_NOTES 4.45), 0 = modello di riferimento:
+    //   biasNs: ritardo FISSO di ogni ricevitore (cavo, elettronica), estratto una volta per drone ~ N(0, biasNs);
+    //   tauS:   dopo l'attivazione dello spoofer il PPS raggiunge il tempo falsato con costante di tempo tauS
+    static void SetPpsReceiver(double biasNs, double tauS) { s_ppsBiasS = biasNs * 1e-9; s_ppsTauS = tauS; }
     static void PrintPpsStats();
     double GetPpsTrueErr(uint8_t sec) const { auto it = m_ownPps.find(sec); return it == m_ownPps.end() ? NAN : it->second.trueErr; }
     // Eta' massima di un range per essere usato (e quindi condiviso)
@@ -212,6 +216,8 @@ private:
     std::map<uint32_t, std::pair<Eigen::Vector3d, double>> m_peerImuVel;   // (velocita' annunciata, istante)
     // 9.1: PPS marcato con l'orologio UWB; relazione tra il mio orologio e quello di ogni mittente
     static double s_ppsSawtoothS, s_ppsNoiseS;
+    static double s_ppsBiasS, s_ppsTauS;
+    double m_ppsBiasS = 0.0;   // ritardo fisso del PPS di questo ricevitore [s]
     static std::ofstream s_ppsLog;
     static uint64_t s_ppsRejected[3];   // [1] differenze di PPS scartate per residuo della retta, [2] calcolate
     static std::ofstream s_uwbLog;

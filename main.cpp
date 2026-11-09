@@ -122,6 +122,9 @@ int main(int argc, char *argv[])
     double ppsSawtoothNs = 10.0, ppsNoiseNs = 1.0;
     cmd.AddValue("ppsSawtoothNs", "PPS: quantizzazione a dente di sega, uniforme +-[ns] (0 = compensata con qErr)", ppsSawtoothNs);
     cmd.AddValue("ppsNoiseNs",    "PPS: rumore gaussiano residuo [ns]", ppsNoiseNs);
+    double ppsBiasNs = 0.0, ppsTauS = 0.0;
+    cmd.AddValue("ppsBiasNs", "PPS: ritardo fisso di ogni ricevitore ~ N(0, sigma) [ns] (0 = nessuno)", ppsBiasNs);
+    cmd.AddValue("ppsTauS",   "PPS: costante di tempo della transizione al tempo falsato [s] (0 = immediata)", ppsTauS);
     std::string radio = "wifi";
     uwblink::Params linkP;
     cmd.AddValue("radio",      "Radio: wifi (storica, tutti ricevono tutto) | uwb (perdite in funzione della distanza)", radio);
@@ -206,6 +209,8 @@ int main(int argc, char *argv[])
             sp->startS      = spoofTime >= 0.0 ? spoofTime : attackTime;
             UwbSecurityApp::SetGnssSpoofer(sp, "gnss_log.csv");
             UwbSecurityApp::SetPps(ppsSawtoothNs, ppsNoiseNs, "pps_log.csv");
+            if (ppsBiasNs < 0.0 || ppsTauS < 0.0) { std::cerr << "--ppsBiasNs e --ppsTauS devono essere >= 0" << std::endl; return 1; }
+            UwbSecurityApp::SetPpsReceiver(ppsBiasNs, ppsTauS);
             std::cout << ">>> Spoofer esterno: antenna (" << sp->antenna.transpose() << ") attivo da t=" << sp->startS
                       << (mixed ? " s; con --mixed=1 restano gli attaccanti interni (--targetsId)"
                                 : " s; l'attacco interno (--targetsId) e' disattivato") << std::endl;

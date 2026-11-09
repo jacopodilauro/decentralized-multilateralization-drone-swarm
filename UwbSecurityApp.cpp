@@ -49,6 +49,8 @@ void UwbSecurityApp::PrintLinkStats() {
     std::cout << std::defaultfloat << std::endl;
 }
 double UwbSecurityApp::s_ppsSawtoothS = 10e-9;
+double UwbSecurityApp::s_ppsBiasS = 0.0;
+double UwbSecurityApp::s_ppsTauS = 0.0;
 double UwbSecurityApp::s_ppsNoiseS = 1e-9;
 std::ofstream UwbSecurityApp::s_ppsLog;
 uint64_t UwbSecurityApp::s_ppsRejected[3] = { 0, 0, 0 };
@@ -187,6 +189,10 @@ m_rng.seed(seq);
     m_imu = imu::Sensor(s_imuParams, base ^ (0xD1B54A32D192ED03ULL * (m_id + 1)) ^ 0x1A0ULL);   // RNG proprio
     m_ppsRng.seed(base ^ (0x94D049BB133111EBULL * (m_id + 1)) ^ 0x995ULL);
     m_linkRng.seed(base ^ (0xBF58476D1CE4E5B9ULL * (m_id + 1)) ^ 0x11F7ULL);
+    if (s_ppsBiasS > 0.0) {   // generatore proprio: non sposta nessun'altra estrazione
+        std::mt19937_64 biasRng(base ^ (0x2545F4914F6CDD1DULL * (m_id + 1)) ^ 0xB1A5ULL);
+        m_ppsBiasS = s_ppsBiasS * std::normal_distribution<double>(0.0, 1.0)(biasRng);
+    }
 
     if (s_rangingDsTwr) {
         // Il tempo "di protocollo" (slot, eta' dei range) resta allineato: la fisica dei timestamp
@@ -247,7 +253,14 @@ void UwbSecurityApp::OnPps() {
     if (!f.ok) return;
     std::uniform_real_distribution<double> u(-1.0, 1.0);
     std::normal_distribution<double> n(0.0, 1.0);
-    double tPps = now + f.ppsErrorS + s_ppsSawtoothS * u(m_ppsRng) + s_ppsNoiseS * n(m_ppsRng);
+    // Sensibilita' (PAPER_NOTES 4.45): transizione esponenziale verso il tempo falsato e ritardo fisso del ricevitore.
+    // trueErr (sotto) resta l'errore fisico: il limite geometrico non li subisce
+    double ppsErr = f.ppsErrorS;
+    if (s_ppsTauS > 0.0 && s_spoofer) {
+        double dt = now - s_spoofer->startS;
+        ppsErr *= dt > 0.0 ? 1.0 - std::exp(-dt / s_ppsTauS) : 0.0;
+    }
+    double tPps = now + ppsErr + m_ppsBiasS + s_ppsSawtoothS * u(m_ppsRng) + s_ppsNoiseS * n(m_ppsRng);
     m_ownPps[(uint8_t)(N & 255)] = { m_uwbClock.Stamp(tPps, m_clockRng), f.ppsErrorS, now };
     m_lastPpsSec = N;
 }
