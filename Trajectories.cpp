@@ -72,7 +72,7 @@ void AssignTrajectoryToNode(
 ) {
     Ptr<WaypointMobilityModel> mob = node->GetObject<WaypointMobilityModel>();
     if (!mob) {
-        std::cerr << "Errore: WaypointMobilityModel non trovato." << std::endl;
+        std::cerr << "Error: WaypointMobilityModel not found." << std::endl;
         return;
     }
     if (g_formation == 1) {   // guscio sferico a spaziatura costante (vedi Trajectories.h)

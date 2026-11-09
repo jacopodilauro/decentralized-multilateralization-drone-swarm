@@ -20,6 +20,7 @@
 #include "EKF.h"
 #include "GnssModel.h"
 #include "SimulationLogger.h"
+#include "ConsoleUi.h"
 
 using namespace ns3;
 
@@ -31,11 +32,14 @@ static void PrintProgress(double interval, double totalTime) {
     if (now > totalTime) {
         return; 
     }
-    std::cout << ">>> [Progresso] Simulazione a t = " << now 
-              << " s (su " << totalTime << " s)..." << std::endl;
+    ui::Tick(now);
               
     Simulator::Schedule(Seconds(interval), &PrintProgress, interval, totalTime);
 }
+
+// Inizio dello spoofer, per l'evento ATTACK (stampa soltanto: nessun evento di simulazione in piu')
+static double g_spoofStartS = -1.0;
+static std::string g_spoofText;
 
 static void LogGroundTruth(std::ofstream* gtFile) {
     if (!gtFile->is_open()) return;
@@ -51,6 +55,12 @@ static void LogGroundTruth(std::ofstream* gtFile) {
                     << pos.x << "," << pos.y << "," << pos.z << "\n";
         }
     }    
+    // Avanzamento a schermo agganciato a questo evento periodico gia' esistente (0,5 s simulati)
+    if (g_spoofStartS >= 0.0 && now >= g_spoofStartS) {
+        ui::Event(g_spoofStartS, "ATTACK", g_spoofText);
+        g_spoofStartS = -1.0;
+    }
+    ui::Tick(now);
     Simulator::Schedule(Seconds(0.5), &LogGroundTruth, gtFile);
 }
 
@@ -152,47 +162,50 @@ int main(int argc, char *argv[])
     cmd.AddValue("formationScale", "Strada A: scala della formazione (distanze x S, velocita' lineari invariate)", formationScale);
     cmd.Parse(argc, argv);
     UwbSecurityApp::SetVerbosity(verbose);
+    ui::Init(setSimTime, (int)verbose);
+    std::string cfgRadio = "Wi-Fi (legacy: every packet received)", cfgUwbErr, cfgScale, cfgSpoof, cfgInsiders, cfgSwarm,
+                cfgGeom, cfgTdma;
     EKF::SetDefaultQAcc(qAcc);
     if (sharePolicy != "nearest" && sharePolicy != "oldest") {
-        std::cerr << "--sharePolicy deve essere nearest oppure oldest" << std::endl; return 1;
+        std::cerr << "--sharePolicy must be nearest or oldest" << std::endl; return 1;
     }
     UwbSecurityApp::SetRangeSharing(shareK, sharePolicy == "oldest");
     UwbSecurityApp::SetImu(imuOn, imuP);
     if (anchorModel == "fixed") UwbSecurityApp::SetAnchorModel(0);
     else if (anchorModel == "r") UwbSecurityApp::SetAnchorModel(1);
     else if (anchorModel == "consider") UwbSecurityApp::SetAnchorModel(2);
-    else { std::cerr << "--anchorModel deve essere fixed, r oppure consider" << std::endl; return 1; }
-    if (anchorVel != "ekf" && anchorVel != "gps") { std::cerr << "--anchorVel deve essere ekf oppure gps" << std::endl; return 1; }
+    else { std::cerr << "--anchorModel must be fixed, r or consider" << std::endl; return 1; }
+    if (anchorVel != "ekf" && anchorVel != "gps") { std::cerr << "--anchorVel must be ekf or gps" << std::endl; return 1; }
     UwbSecurityApp::SetAnchorVelGps(anchorVel == "gps");
-    if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging deve essere dstwr o toa" << std::endl; return 1; }
+    if (ranging != "dstwr" && ranging != "toa") { std::cerr << "--ranging must be dstwr or toa" << std::endl; return 1; }
     UwbSecurityApp::SetRangingDsTwr(ranging == "dstwr");
 
     RngSeedManager::SetSeed(12345);
     RngSeedManager::SetRun(runId); 
 
-    if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss deve essere receiver o simple" << std::endl; return 1; }
-    if (radio != "wifi" && radio != "uwb") { std::cerr << "--radio deve essere wifi oppure uwb" << std::endl; return 1; }
+    if (gnssMode != "receiver" && gnssMode != "simple") { std::cerr << "--gnss must be receiver or simple" << std::endl; return 1; }
+    if (radio != "wifi" && radio != "uwb") { std::cerr << "--radio must be wifi or uwb" << std::endl; return 1; }
     UwbSecurityApp::SetUwbRadio(radio == "uwb", linkP);
     if (radio == "uwb")
-        std::cout << ">>> Radio UWB: EIRP " << uwblink::TxEirpDbm(linkP) << " dBm, sensibilita' " << linkP.sensDbm
-                  << " dBm, ricezione al 50% a " << uwblink::Range50(linkP) << " m" << std::endl;
-    if (uwbError != "legacy" && uwbError != "real") { std::cerr << "--uwbError deve essere legacy oppure real" << std::endl; return 1; }
+        cfgRadio = "UWB, 50% reception at " + ui::Fmt(uwblink::Range50(linkP), 1) + " m (sensitivity "
+                   + ui::Num(linkP.sensDbm) + " dBm)";
+    if (uwbError != "legacy" && uwbError != "real") { std::cerr << "--uwbError must be legacy or real" << std::endl; return 1; }
     errP.on = (uwbError == "real");
     errP.link = linkP;
-    if (errP.on)
-        std::cout << ">>> Errore UWB realistico: P_LOS = exp(-d/" << errP.losDist << "), correlazione " << errP.corrDist
-                  << " m, rumore " << errP.sigmaFloor << " + " << errP.sigmaEdge << " m a margine 0 dB (sensibilita' "
-                  << errP.link.sensDbm << " dBm), NLOS non rilevati " << errP.pMiss << ", falsi NLOS " << errP.pFa << std::endl;
+    cfgUwbErr = errP.on ? "realistic, P_LOS = exp(-d/" + ui::Num(errP.losDist) + " m), NLOS correlated over "
+                              + ui::Num(errP.corrDist) + " m"
+                        : "legacy (independent LOS states, ideal LOS flag)";
     if (uwbLog) UwbSecurityApp::SetUwbLog("uwb_log.csv");
-    if (formation != "legacy" && formation != "shell") { std::cerr << "--formation deve essere legacy oppure shell" << std::endl; return 1; }
+    if (formation != "legacy" && formation != "shell") { std::cerr << "--formation must be legacy or shell" << std::endl; return 1; }
     if (formation == "shell" && (setnDrones < 5 || spacing <= 0.0 || shellSpeed < 0.0)) {
-        std::cerr << "--formation=shell richiede almeno 5 droni base, --spacing > 0 e --shellSpeed >= 0" << std::endl; return 1;
+        std::cerr << "--formation=shell needs at least 5 base drones, --spacing > 0 and --shellSpeed >= 0" << std::endl; return 1;
     }
     SetFormation(formation == "shell" ? 1 : 0, spacing, shellSpeed);
-    if (formationScale <= 0.0) { std::cerr << "--formationScale deve essere positivo" << std::endl; return 1; }
+    if (formationScale <= 0.0) { std::cerr << "--formationScale must be positive" << std::endl; return 1; }
     SetFormationScale(formationScale);
-    if (formationScale != 1.0) std::cout << ">>> Formazione scalata: S=" << formationScale << std::endl;
-    if (spoof && gnssMode != "receiver") { std::cerr << "--spoof richiede --gnss=receiver" << std::endl; return 1; }
+    if (formationScale != 1.0) cfgScale = "S = " + ui::Num(formationScale) + " (distances x S, linear speeds unchanged)";
+    ui::Json("formation_scale", ui::Num(formationScale));   // la vecchia riga "Formazione scalata: S=" (aperture_sweep)
+    if (spoof && gnssMode != "receiver") { std::cerr << "--spoof needs --gnss=receiver" << std::endl; return 1; }
     if (gnssMode == "receiver") {
         // Una sola costellazione per simulazione: e' lei a rendere comune l'errore atmosferico tra i droni
         uint64_t gseed = RngSeedManager::GetSeed() * 6364136223846793005ULL + RngSeedManager::GetRun() + 0x6E55ULL;
@@ -209,24 +222,35 @@ int main(int argc, char *argv[])
             sp->startS      = spoofTime >= 0.0 ? spoofTime : attackTime;
             UwbSecurityApp::SetGnssSpoofer(sp, "gnss_log.csv");
             UwbSecurityApp::SetPps(ppsSawtoothNs, ppsNoiseNs, "pps_log.csv");
-            if (ppsBiasNs < 0.0 || ppsTauS < 0.0) { std::cerr << "--ppsBiasNs e --ppsTauS devono essere >= 0" << std::endl; return 1; }
+            if (ppsBiasNs < 0.0 || ppsTauS < 0.0) { std::cerr << "--ppsBiasNs and --ppsTauS must be >= 0" << std::endl; return 1; }
             UwbSecurityApp::SetPpsReceiver(ppsBiasNs, ppsTauS);
-            std::cout << ">>> Spoofer esterno: antenna (" << sp->antenna.transpose() << ") attivo da t=" << sp->startS
-                      << (mixed ? " s; con --mixed=1 restano gli attaccanti interni (--targetsId)"
-                                : " s; l'attacco interno (--targetsId) e' disattivato") << std::endl;
+            // Stessa formattazione della vecchia riga "Spoofer esterno: antenna (...)" letta dagli script
+            std::string ax = ui::Num(sp->antenna.x()), ay = ui::Num(sp->antenna.y()), az2 = ui::Num(sp->antenna.z());
+            ui::Json("spoofer_antenna_m", "[" + ax + ", " + ay + ", " + az2 + "]");
+            ui::Json("spoofer_start_s", ui::Num(sp->startS));
+            cfgSpoof = ui::Num(spoofDist) + " m away, azimuth " + ui::Num(spoofAz) + ui::Deg() + ", from t = "
+                       + ui::Num(sp->startS) + " s";
+            g_spoofStartS = sp->startS;
+            g_spoofText = "spoofer on, " + ui::Num(spoofDist) + " m away, azimuth " + ui::Num(spoofAz) + ui::Deg();
         }
         UwbHeader::SetGnssAccMode(true);
         UwbSecurityApp::SetChi2Threshold(chi2Thr);
     }
 
-    std::cout << "--- Start Simulation Distry MLAT-26 (Decentralized Edition) ---" << std::endl;
-
-    uint32_t totalNodes = setnDrones + setnGuests; 
-    std::cout << "Slot totali allocati nel Frame TDMA: " << totalNodes << std::endl;
-    std::cout << ">>> Sciame: " << setnDrones << " droni base, " << setnGuests << " ospiti, formazione " << formation;
-    if (formation == "shell")
-        std::cout << " (raggio " << ShellRadius((int)setnDrones - 1) << " m, spaziatura " << spacing << " m, " << shellSpeed << " m/s)";
-    std::cout << ", frame TDMA " << totalNodes * setSlot * 1000.0 << " ms" << std::endl;
+    uint32_t totalNodes = setnDrones + setnGuests;
+    // Stessa formattazione della vecchia riga ">>> Sciame: ..." letta dagli script (raggio, frame, droni base)
+    ui::Json("n_base_drones", std::to_string(setnDrones));
+    ui::Json("n_guests", std::to_string(setnGuests));
+    ui::Json("frame_ms", ui::Num(totalNodes * setSlot * 1000.0));
+    cfgSwarm = std::to_string(totalNodes) + " drones (" + std::to_string(setnDrones) + " base, " + std::to_string(setnGuests)
+               + " guests), " + formation + " formation";
+    if (formation == "shell") {
+        ui::Json("shell_radius_m", ui::Num(ShellRadius((int)setnDrones - 1)));
+        cfgGeom = "radius " + ui::Fmt(ShellRadius((int)setnDrones - 1), 1) + " m, spacing " + ui::Num(spacing)
+                  + " m, rotation " + ui::Num(shellSpeed) + " m/s";
+    }
+    cfgTdma = "frame " + ui::Num(totalNodes * setSlot * 1000.0) + " ms (" + std::to_string(totalNodes) + " slots of "
+              + ui::Num(setSlot * 1000.0) + " ms)";
 
     std::ofstream csvFile(csvFileName);
     if (csvFile.is_open()) {
@@ -320,16 +344,23 @@ int main(int argc, char *argv[])
         if (spoof && !mixed) maliciousIds.clear();   // con lo spoofer esterno nessun drone mente (salvo --mixed=1)
     }
     if (!maliciousIds.empty() && (insiderSpread || mixed || formation == "shell")) {
-        std::cout << ">>> Attaccanti interni:";
         for (size_t k = 0; k < maliciousIds.size(); k++) {
             double deg = insiderSpread ? 90.0 + 360.0 * k / maliciousIds.size() : 90.0;
             if (maliciousIds[k] < totalNodes && apps[maliciousIds[k]]) apps[maliciousIds[k]]->SetAttackDirection(deg);
-            std::cout << " " << maliciousIds[k] << "@" << deg;
         }
-        std::cout << " (id@direzione in gradi, 90 = nord), da t=" << attackTime << " s" << std::endl;
+    }
+    if (!maliciousIds.empty()) {
+        std::vector<int> ids(maliciousIds.begin(), maliciousIds.end());
+        cfgInsiders = "drone" + std::string(ids.size() > 1 ? "s " : " ") + ui::IdList(ids) + " from t = " + ui::Num(attackTime)
+                      + " s, " + (insiderSpread ? "each in its own direction" : "drifting north");
     }
 
     Simulator::Schedule(Seconds(attackTime), [&apps, maliciousIds, totalNodes]() {
+        if (!maliciousIds.empty()) {
+            std::vector<int> ids(maliciousIds.begin(), maliciousIds.end());
+            ui::Event(Simulator::Now().GetSeconds(), "ATTACK", "insider" + std::string(ids.size() > 1 ? "s " : " ")
+                      + ui::IdList(ids) + (ids.size() > 1 ? " start" : " starts") + " declaring a false GNSS position");
+        }
         for (uint32_t id : maliciousIds) {
             if (id < totalNodes && apps[id]) {
                 apps[id]->SetMalicious(true);
@@ -337,13 +368,11 @@ int main(int argc, char *argv[])
         }
     });
 
-    std::cout << ">>> Configurazione completata. Avvio ns-3..." << std::endl;
     Simulator::Schedule(Seconds(20.0), &PrintProgress, 20.0, setSimTime);
     
     AnimationInterface* anim = nullptr;
 
     if(netanim) {
-        std::cout << ">>> Saving data in NetAnim..." << std::endl;
         anim = new AnimationInterface("esperimento_swarm.xml");
         anim->SetMaxPktsPerTraceFile(5000000);
         
@@ -361,7 +390,23 @@ int main(int argc, char *argv[])
             }
         }
     }
-    std::cout << ">>> Running Simulation..." << std::endl;
+    ui::Title(std::string("Distry MLAT-26") + ui::Dot() + "seed " + std::to_string(runId) + ui::Dot()
+              + ui::Num(setSimTime) + " s simulated");
+    ui::Config("swarm", cfgSwarm);
+    if (!cfgGeom.empty()) ui::Config("geometry", cfgGeom);
+    if (!cfgScale.empty()) ui::Config("scale", cfgScale);
+    ui::Config("TDMA", cfgTdma);
+    ui::Config("radio", cfgRadio);
+    ui::Config("ranging", ranging == "dstwr" ? "DS-TWR from TDMA broadcasts" : "ToA (legacy model)");
+    ui::Config("UWB error", cfgUwbErr);
+    ui::Config("GNSS", gnssMode == "receiver" ? "realistic receiver, chi2 threshold " + ui::Num(chi2Thr) : "simple (legacy model)");
+    if (!cfgSpoof.empty()) ui::Config("spoofer", cfgSpoof);
+    if (!cfgInsiders.empty()) ui::Config("insiders", cfgInsiders);
+    if (cfgSpoof.empty() && cfgInsiders.empty()) ui::Config("attack", "none");
+    if (netanim) ui::Config("output", "NetAnim trace esperimento_swarm.xml");
+    ui::Json("sim_time_s", ui::Num(setSimTime));
+    ui::Json("seed", std::to_string(runId));
+    ui::PrintHeader();
     Simulator::Stop(Seconds(setSimTime + 1.0));
     Simulator::Run();
     UwbSecurityApp::PrintLinkStats();
@@ -372,6 +417,6 @@ int main(int argc, char *argv[])
     if (anim) {
         delete anim;
     }
-    std::cout << "--- End. ---" << std::endl;
+    ui::Finish("summary.json");
     return 0;
 }

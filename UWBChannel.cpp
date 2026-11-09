@@ -1,4 +1,5 @@
 #include "UWBChannel.h"
+#include "ConsoleUi.h"
 
 #include "ns3/rng-seed-manager.h"
 
@@ -225,9 +226,9 @@ void UWBChannel::PrintErrorStats() const
     uint64_t nl = m_conf[1][0] + m_conf[1][1], lo = m_conf[0][0] + m_conf[0][1];
     double now = Simulator::Now().GetSeconds(), open = 0.0;
     for (const auto& kv : m_links) if (kv.second.init && kv.second.nlos) open += now - kv.second.tStart;
-    std::cout << ">>> Errore UWB (Fase 5): messaggi " << tot << ", NLOS veri " << std::fixed << std::setprecision(2)
-              << (tot ? 100.0 * nl / tot : 0.0) << "%, episodi NLOS " << m_episodes << " (non rilevati "
-              << m_hiddenEpisodes << "), durata media " << (m_episodes ? (m_episodeTime + open) / m_episodes : 0.0)
-              << " s | dichiarati NLOS: tra i LOS " << (lo ? 100.0 * m_conf[0][1] / lo : 0.0) << "%, tra gli NLOS "
-              << (nl ? 100.0 * m_conf[1][1] / nl : 0.0) << "%" << std::defaultfloat << std::endl;
+    ui::Summary("UWB errors", std::to_string(tot) + " messages, " + ui::Fmt(tot ? 100.0 * nl / tot : 0.0, 2) + "% NLOS, "
+                + std::to_string(m_episodes) + " episodes (" + std::to_string(m_hiddenEpisodes) + " undetected, mean "
+                + ui::Fmt(m_episodes ? (m_episodeTime + open) / m_episodes : 0.0, 1) + " s)");
+    ui::Summary("NLOS flag", "raised on " + ui::Fmt(lo ? 100.0 * m_conf[0][1] / lo : 0.0, 2) + "% of LOS and "
+                + ui::Fmt(nl ? 100.0 * m_conf[1][1] / nl : 0.0, 2) + "% of NLOS messages");
 }

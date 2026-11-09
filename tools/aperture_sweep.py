@@ -35,6 +35,10 @@ N_BASE = 8
 
 
 def scale_from_stdout(path):
+    from run_summary import load
+    sm = load(path)
+    if sm is not None and "formation_scale" in sm:
+        return float(sm["formation_scale"])
     with open(path) as f:
         for line in f:
             m = re.search(r"Formazione scalata: S=(\S+)", line)
@@ -62,7 +66,11 @@ def curvature_and_aperture(g, s):
 
 
 def n_base_from_stdout(path):
-    """Numero di droni base dalla riga '>>> Sciame: N droni base' (simulazioni recenti); altrimenti 8 (storico)."""
+    """Numero di droni base da summary.json, o dalla riga '>>> Sciame: N droni base'; altrimenti 8 (storico)."""
+    from run_summary import load
+    sm = load(path)
+    if sm is not None and "n_base_drones" in sm:
+        return int(sm["n_base_drones"])
     try:
         with open(path) as fh:
             for line in fh:

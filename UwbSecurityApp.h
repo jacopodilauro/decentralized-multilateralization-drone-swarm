@@ -144,6 +144,9 @@ private:
     double          m_attackStartTime;
     double          m_attackDirX = 0.0, m_attackDirY = 1.0;   // storico: verso nord (+y)
     static uint32_t s_maxPktBytes;
+    static std::set<uint32_t> s_consensusIds;   // droni che hanno raggiunto il consenso sulla cattura (summary.json)
+    static uint32_t s_expulsionLines;           // espulsioni annunciate (summary.json)
+    static std::set<uint32_t> s_alarmAnnounced; // droni finiti sotto allarme collettivo almeno una volta
     double          m_slotDuration;
     uint16_t        m_port;
     Ptr<UWBChannel> m_channel;

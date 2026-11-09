@@ -1,4 +1,5 @@
 #include "UwbSecurityApp.h"
+#include "ConsoleUi.h"
 #include "Trajectories.h"
 #include "DsTwr.h"
 #include "UwbHeader.h"
@@ -36,17 +37,28 @@ uwblink::Params UwbSecurityApp::s_linkParams;
 Ptr<LogDistancePropagationLossModel> UwbSecurityApp::s_linkLoss;
 uint64_t UwbSecurityApp::s_linkTot[6] = { 0, 0, 0, 0, 0, 0 };
 uint64_t UwbSecurityApp::s_linkOk[6]  = { 0, 0, 0, 0, 0, 0 };
+// Per summary.json (prima gli script li contavano nelle righe di stdout.txt, con le stesse condizioni)
+std::set<uint32_t> UwbSecurityApp::s_consensusIds;
+uint32_t UwbSecurityApp::s_expulsionLines = 0;
+std::set<uint32_t> UwbSecurityApp::s_alarmAnnounced;
 
 void UwbSecurityApp::PrintLinkStats() {
     if (!s_uwbRadio) return;
     uint64_t tot = 0, ok = 0;
     for (int i = 0; i < 6; i++) { tot += s_linkTot[i]; ok += s_linkOk[i]; }
-    std::cout << ">>> Radio UWB: pacchetti ricevuti " << std::fixed << std::setprecision(2)
-              << (tot ? 100.0 * ok / tot : 0.0) << "% di " << tot << " | per distanza:";
+    // 2 decimali come la vecchia riga "Radio UWB: pacchetti ricevuti x%" letta da paper_campaign.py
+    std::string pct = ui::Fmt(tot ? 100.0 * ok / tot : 0.0, 2), byDist, js;
     const char* lab[6] = { "0-30", "30-60", "60-90", "90-120", "120-150", ">150" };
     for (int i = 0; i < 6; i++)
-        if (s_linkTot[i]) std::cout << " " << lab[i] << " m " << 100.0 * s_linkOk[i] / s_linkTot[i] << "%";
-    std::cout << std::defaultfloat << std::endl;
+        if (s_linkTot[i]) {
+            std::string v = ui::Fmt(100.0 * s_linkOk[i] / s_linkTot[i], 2);
+            byDist += ui::Dot() + std::string(lab[i]) + " m " + v + "%";
+            js += std::string(js.empty() ? "" : ", ") + ui::JsonStr(lab[i]) + ": " + v;
+        }
+    ui::Summary("UWB radio", pct + "% of " + std::to_string(tot) + " packets received");
+    if (!byDist.empty()) ui::Summary("by range", byDist.substr(ui::Dot().size()));
+    ui::Json("uwb_received_pct", pct);
+    ui::Json("uwb_received_by_distance_pct", "{" + js + "}");
 }
 double UwbSecurityApp::s_ppsSawtoothS = 10e-9;
 double UwbSecurityApp::s_ppsBiasS = 0.0;
@@ -71,8 +83,10 @@ static constexpr double FIT_RMS_MAX_M = 10.0;
 
 void UwbSecurityApp::PrintPpsStats() {
     if (!s_ppsLog.is_open()) return;
-    std::cout << ">>> PPS: differenze calcolate " << s_ppsRejected[2] << ", scartate per residuo della retta > "
-              << FIT_RMS_MAX_M << " m: " << s_ppsRejected[1] << std::endl;
+    ui::Summary("PPS", std::to_string(s_ppsRejected[2]) + " differences computed, " + std::to_string(s_ppsRejected[1])
+                + " rejected (line-fit residual > " + ui::Num(FIT_RMS_MAX_M) + " m)");
+    ui::Json("pps_differences", std::to_string(s_ppsRejected[2]));
+    ui::Json("pps_rejected", std::to_string(s_ppsRejected[1]));
 }
 
 void UwbSecurityApp::SetPps(double sawtoothNs, double noiseNs, const std::string& logPath) {
@@ -216,7 +230,16 @@ void UwbSecurityApp::SetMalicious(bool isMalicious) {
 bool UwbSecurityApp::IsMalicious() const { return m_isMalicious; }
 uint32_t UwbSecurityApp::s_maxPktBytes = 0;
 void UwbSecurityApp::PrintPacketStats() {
-    std::cout << ">>> Pacchetti: dimensione massima " << s_maxPktBytes << " byte" << std::endl;
+    ui::Summary("packets", "largest " + std::to_string(s_maxPktBytes) + " B");
+    ui::Json("packet_max_bytes", std::to_string(s_maxPktBytes));
+    // cattura, espulsioni e allarmi raccolti durante la simulazione
+    std::string ids;
+    for (uint32_t id : s_consensusIds) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
+    ui::Json("capture_consensus_drones", "[" + ids + "]");
+    ui::Json("expulsions", std::to_string(s_expulsionLines));
+    std::vector<int> v(s_consensusIds.begin(), s_consensusIds.end()), a(s_alarmAnnounced.begin(), s_alarmAnnounced.end());
+    ui::Summary("capture", v.empty() ? "no capture consensus" : "consensus reached by " + std::to_string(v.size()) + " drones");
+    ui::Summary("alarms", a.empty() ? "no collective alarms" : "collective alarm on drone" + std::string(a.size() > 1 ? "s " : " ") + ui::IdList(a));
 }
 
 void UwbSecurityApp::StartApplication() {
@@ -431,9 +454,7 @@ void UwbSecurityApp::SendUwbMessage() {
     m_socket->SendTo(packet, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
 
     if (m_pendingLeave) {
-        if (s_verbosity >= 1) std::cout << ">>> GOODBYE TX: drone ID=" << m_id
-                  << " ha inviato il messaggio <leave> a t="
-                  << now << "s — radio off, attende consenso." << std::endl;
+        ui::Group(now, "LEAVE", "drone{s} {ids} sent the leave message, radio off", (int)m_id, 2);
         //m_isActive     = false;
         this->SetActive(false);
         m_imLeaving   = false;
@@ -445,7 +466,7 @@ void UwbSecurityApp::SendUwbMessage() {
     // ==========================================================
     // Stato delle votazioni di membership: solo quando c'e' qualcosa in sospeso
     if (m_id == 0 && s_verbosity >= 2 && (!m_pendingLeaves.empty() || !m_pendingEvictions.empty())) {
-        std::cout << "\n--- [DEBUG VOTAZIONI t=" << now << "s] ---" << std::endl;
+        ui::Raw("  --- membership votes at t = " + ui::Num(now) + " s ---");
         
         uint32_t activeNodes = 0;
         for (const auto& pair : m_slotMap) {
@@ -454,31 +475,21 @@ void UwbSecurityApp::SendUwbMessage() {
         uint32_t quorum = (activeNodes > 2) ? ((activeNodes * 2 + 2) / 3) : activeNodes;
         
 // Richiama GetSerializedSize() sull'header per sapere quanto pesa in quel momento
-std::cout << "Nodi Attivi: " << activeNodes 
-          << " | Quorum Richiesto: " << quorum 
-          << " | Payload (Size): " << header.GetSerializedSize() << " byte" << std::endl;        
-        if (m_pendingLeaves.empty()) {
-            std::cout << "Leave Volontari: Nessuno in sospeso." << std::endl;
-        } else {
-            for (const auto& pair : m_pendingLeaves) {
-                std::cout << "Leave Volontario [Drone " << pair.first << "] -> Voti (" 
-                          << pair.second.size() << "/" << quorum << "): { ";
-                for (uint32_t voter : pair.second) std::cout << voter << " ";
-                std::cout << "}" << std::endl;
-            }
+        // GetSerializedSize() sull'header: quanto pesa il pacchetto in quel momento
+        ui::Raw("  active drones " + std::to_string(activeNodes) + ", quorum " + std::to_string(quorum)
+                + ", packet " + std::to_string(header.GetSerializedSize()) + " B");
+        for (const auto& pair : m_pendingLeaves) {
+            std::string v;
+            for (uint32_t voter : pair.second) v += " " + std::to_string(voter);
+            ui::Raw("  leave of drone " + std::to_string(pair.first) + ": votes " + std::to_string(pair.second.size())
+                    + "/" + std::to_string(quorum) + " {" + v + " }");
         }
-
-        if (m_pendingEvictions.empty()) {
-            std::cout << "Evictions (Guasti): Nessuno in sospeso." << std::endl;
-        } else {
-            for (const auto& pair : m_pendingEvictions) {
-                std::cout << "Eviction Guasto [Drone " << pair.first << "] -> Voti (" 
-                          << pair.second.size() << "/" << quorum << "): { ";
-                for (const auto& [voter, tv] : pair.second) std::cout << voter << " ";
-                std::cout << "}" << std::endl;
-            }
+        for (const auto& pair : m_pendingEvictions) {
+            std::string v;
+            for (const auto& [voter, tv] : pair.second) v += " " + std::to_string(voter);
+            ui::Raw("  eviction of drone " + std::to_string(pair.first) + ": votes " + std::to_string(pair.second.size())
+                    + "/" + std::to_string(quorum) + " {" + v + " }");
         }
-        std::cout << "--------------------------------------\n" << std::endl;
     }
 }
 
@@ -523,8 +534,8 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
 
         // 1. IL GEOFENCE: Se sento per la prima volta un nodo a meno di 10m
         if (m_isGuest && m_macState == STATE_OUT_OF_RANGE && distanceToCube/*distFisica*/ <= 10.0 * S) {
-            if (s_verbosity >= 1) std::cout << "\n>>> [GEOFENCE RF] Drone " << GetNode()->GetId()
-                      << " capta segnale a " << distanceToCube/*distFisica*/ << "m. Entra in Ascolto Passivo." << std::endl;
+            ui::Group(Simulator::Now().GetSeconds(), "JOIN", "guest{s} {ids} in range (" + ui::Fmt(distanceToCube, 1)
+                      + " m from the cube), listening", (int)GetNode()->GetId(), 2);
             m_macState = STATE_LISTENING;
             m_listenCounter = 0;
         }
@@ -536,7 +547,8 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
         if (m_isGuest && m_macState == STATE_LISTENING) continue;
         // 4. AGGIUNTA DINAMICA PER I DRONI BASE (Aggiornano la loro mappa)
         if (m_slotMap.find(senderId) == m_slotMap.end() || m_slotMap[senderId] == UINT32_MAX) {
-            if (s_verbosity >= 2) std::cout << ">>> [RETE] Il nodo " << m_id << " riconosce un nuovo membro attivo: Drone " << senderId << std::endl;
+            ui::Group(Simulator::Now().GetSeconds(), "JOIN", "drone " + std::to_string(senderId)
+                      + " seen as a new member by drone{s} {ids}", (int)m_id, 2);
             m_slotMap[senderId] = senderId; // Aggiunge il nuovo arrivato alla mappa TDMA
         }
         // ==========================================================
@@ -595,9 +607,11 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
                 double tLim = std::max(5.0 * m_swarmSize * m_slotDuration, 2.0);
                 bool silent = Simulator::Now().GetSeconds() - LastEvidence(it->first) > tLim;
                 if (it->first != m_id && silent && it->second.size() >= evictQuorum) {
-                    if (s_verbosity >= 2 || (s_verbosity >= 1 && AnnounceOnce('E', it->first, Simulator::Now().GetSeconds())))
-                    std::cout << ">>> [QUORUM EVICTION] t=" << Simulator::Now().GetSeconds() 
-                              << "s | Espulsione forzata Drone " << it->first << " (decisa da " << m_id << ")" << std::endl;
+                    if (s_verbosity >= 2 || (s_verbosity >= 1 && AnnounceOnce('E', it->first, Simulator::Now().GetSeconds()))) {
+                        s_expulsionLines++;   // stessa condizione della vecchia riga contata dagli script
+                        ui::Group(Simulator::Now().GetSeconds(), "EXPEL", "drone " + std::to_string(it->first)
+                                  + " expelled by quorum (silent), decided by drone{s} {ids}", (int)m_id, 1);
+                    }
                     RemovePeer(it->first);
                     ReorganizeSlots(it->first);
                     it = m_pendingEvictions.erase(it); 
@@ -615,8 +629,8 @@ void UwbSecurityApp::ReceivePacket(Ptr<Socket> socket) {
             if (m_slotMap.count(it->first) && m_slotMap[it->first] != UINT32_MAX) { // <-- FIX
                 if (it->second.size() >= quorum) {
                     if (s_verbosity >= 2 || (s_verbosity >= 1 && AnnounceOnce('L', it->first, Simulator::Now().GetSeconds())))
-                    std::cout << ">>> [QUORUM LEAVE] t=" << Simulator::Now().GetSeconds() 
-                              << "s | Drone " << it->first << " uscito con consenso globale." << std::endl;
+                        ui::Group(Simulator::Now().GetSeconds(), "LEAVE", "guest{s} {ids} left with consensus",
+                                  (int)it->first, 1);
                     RemovePeer(it->first);
                     ReorganizeSlots(it->first);
                     it = m_pendingLeaves.erase(it); 
@@ -1036,23 +1050,27 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     uint32_t threshold = std::max(2u, ((activeObservers * 2u + 2u) / 3u));
     
     bool collectiveAlarm = (totalVotes >= threshold);
+    auto prevAlarm = m_collectiveAlarm.find(senderId);
+    bool wasAlarm = prevAlarm != m_collectiveAlarm.end() && prevAlarm->second;
     m_collectiveAlarm[senderId] = collectiveAlarm;
+    // Solo stampa: la prima volta che un drone e' sotto allarme collettivo (evento), poi i dettagli per osservatore
+    if (collectiveAlarm && !wasAlarm) {
+        if (s_alarmAnnounced.insert(senderId).second)
+            ui::Group(currentTime, "ALARM", "collective alarm on drone{s} {ids}", (int)senderId, 1);
+        ui::Group(currentTime, "ALARM", "drone " + std::to_string(senderId) + " under alarm at observer{s} {ids}", (int)m_id, 2);
+    } else if (!collectiveAlarm && wasAlarm) {
+        ui::Group(currentTime, "ALARM", "alarm on drone " + std::to_string(senderId) + " cleared at observer{s} {ids}", (int)m_id, 2);
+    }
 
     // Traccia continua: osservatore 1 che stima il nodo 0
     if (s_verbosity >= 2 && m_id == 1 && senderId == 0) {
-        std::cout << "t=" << currentTime
-                  << " sender=" << senderId
-                  << " n_peer=" << inputData.size() - 1
-                  << " mahal="   << mahal
-                  << " ekf_err=" << (estimatedPos - senderTruePos).norm()
-                  << " claimed_err=" << (claimedGps - senderTruePos).norm()
-                  << " alarm="   << m_alarms[senderId]
-                  << " myVote=" << myVote
-                  << " peerVotes=" << peerVoteCount
-                  << " totalVotes=" << totalVotes
-                  << " threshold=" << threshold
-                  << " collective=" << collectiveAlarm
-                  << std::endl;
+        std::ostringstream o;
+        o << "  trace t=" << currentTime << " sender=" << senderId << " n_peer=" << inputData.size() - 1
+          << " mahal=" << mahal << " ekf_err=" << (estimatedPos - senderTruePos).norm()
+          << " claimed_err=" << (claimedGps - senderTruePos).norm() << " alarm=" << m_alarms[senderId]
+          << " my_vote=" << myVote << " peer_votes=" << peerVoteCount << " total_votes=" << totalVotes
+          << " threshold=" << threshold << " collective=" << collectiveAlarm;
+        ui::Raw(o.str());
     }
 
     if (m_csv && m_csv->is_open()) {
@@ -1076,13 +1094,11 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
         bool changed = (prev == m_lastPrintedVoteState.end()) ? (voteState != 0u) : (prev->second != voteState);
         m_lastPrintedVoteState[senderId] = voteState;
         if (s_verbosity >= 2 && changed) {
-            std::cout << "[DEBUG t=" << currentTime << "s] " 
-                      << "Osservatore ID=" << m_id 
-                      << " | Nodi attivi visti: " << currentActiveNodes 
-                      << " | Voti ricevuti dai Peer: " << peerVoteCount 
-                      << " | Mio Voto: " << myVote
-                      << " | TOTALE: " << totalVotes << " (Soglia: " << threshold << ")" 
-                      << std::endl;
+            std::ostringstream o;
+            o << "  votes t=" << currentTime << " observer=" << m_id << " active_seen=" << currentActiveNodes
+              << " peer_votes=" << peerVoteCount << " my_vote=" << myVote << " total=" << totalVotes
+              << " threshold=" << threshold;
+            ui::Raw(o.str());
         }
     }
 }
@@ -1112,9 +1128,8 @@ void UwbSecurityApp::EnterRelativeMode(double now) {
     m_selfEkf.Init(sn.myGps, sn.myVel, sn.myCov, 1.0);   // velocita' dai GPS su ~1 s: 1 m/s di incertezza
     m_selfTime = sn.t;
     m_relMode = true;
-    if (s_verbosity >= 1)
-        std::cout << ">>> t=" << now << " s drone " << m_id << ": localizzazione RELATIVA (UWB) dall'istantanea di t="
-                  << sn.t << " s" << std::endl;
+    ui::Group(now, "CAPTURE", "drone{s} {ids} switched to UWB-only localization (snapshot " + ui::Fmt(now - sn.t, 1)
+              + " s old)", (int)m_id, 2);
 }
 
 Eigen::Vector3d UwbSecurityApp::SelfAt(double t, Eigen::Matrix3d* cov) {
@@ -1186,9 +1201,9 @@ void UwbSecurityApp::EvaluateSwarmCapture() {
         bool before = m_swarmCaptured;
         if (m_captureCount >= HYSTERESIS)  m_swarmCaptured = true;
         if (m_captureCount <= -HYSTERESIS) m_swarmCaptured = false;
-        if (s_verbosity >= 1 && before != m_swarmCaptured)
-            std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_swarmCaptured ? "CATTURA DELLO SCIAME rilevata" : "fine della cattura")
-                      << " (coppie coerenti " << nOk << "/" << nPairs << ")" << std::endl;
+        if (before != m_swarmCaptured)
+            ui::Group(now, "CAPTURE", m_swarmCaptured ? "capture detected by drone{s} {ids}" : "capture no longer seen by drone{s} {ids}",
+                      (int)m_id, 2);
     }
 
     // Consenso: annunci freschi (<= 1 s) dei droni attivi + il mio stato, quorum 2/3 (come i voti)
@@ -1202,9 +1217,11 @@ void UwbSecurityApp::EvaluateSwarmCapture() {
         TakeSnapshot(now);
     if (m_captureConsensus && !beforeC) EnterRelativeMode(now);
     if (!m_captureConsensus) m_relMode = false;
-    if (s_verbosity >= 1 && beforeC != m_captureConsensus)
-        std::cout << ">>> t=" << now << " s drone " << m_id << ": " << (m_captureConsensus ? "CONSENSO: sciame catturato" : "consenso sulla cattura terminato")
-                  << " (" << votes << "/" << active << ", soglia " << thr << ")" << std::endl;
+    if (s_verbosity >= 1 && beforeC != m_captureConsensus) {
+        if (m_captureConsensus) s_consensusIds.insert(m_id);   // per summary.json (la vecchia riga "CONSENSO")
+        ui::Group(now, "CAPTURE", m_captureConsensus ? "swarm captured: consensus at drone{s} {ids}"
+                                                     : "capture consensus ended at drone{s} {ids}", (int)m_id, 1);
+    }
 }
 
 Eigen::Vector3d UwbSecurityApp::GetCurrentGpsPosition() {
@@ -1273,9 +1290,8 @@ void UwbSecurityApp::ScheduleLeave() {
     if (m_pendingLeave) return; 
     m_pendingLeave = true;
     m_imLeaving    = true;
-    if (s_verbosity >= 1) std::cout << ">>> LEAVE SCHEDULATO: drone ID=" << m_id
-              << " invierà goodbye al prossimo slot TDMA (t="
-              << Simulator::Now().GetSeconds() << "s)" << std::endl;
+    ui::Group(Simulator::Now().GetSeconds(), "LEAVE", "drone{s} {ids} will send the leave message in the next slot",
+              (int)m_id, 2);
 }
 
 double UwbSecurityApp::LastEvidence(uint32_t id) const {
@@ -1342,8 +1358,7 @@ void UwbSecurityApp::ReorganizeSlots(uint32_t leavingDroneId) {
     m_ekfBank.erase(leavingDroneId);
 
     if (m_id == 0 && s_verbosity >= 2) {
-        std::cout << "\n[TDMA STATIC FRAME] Il Drone " << leavingDroneId 
-                  << " è uscito. Il suo slot è disattivato." << std::endl;
+        ui::Raw("  TDMA slot of drone " + std::to_string(leavingDroneId) + " disabled");
     }
 }
 
@@ -1383,13 +1398,12 @@ void UwbSecurityApp::EvaluateMacState() {
         // Se mi sono allontanato oltre 14 metri (Isteresi: 10 per entrare, 14 per uscire), scalati con la formazione
         if (distanceToCube > 14.0 * S) {
             if (m_macState == STATE_ACTIVE && !m_pendingLeave) {
-                if (s_verbosity >= 1) std::cout << "\n>>> [ISTERESI GEOFENCE] Drone " << m_id
-                          << " ha superato i 14m dal cubo (" << distanceToCube 
-                          << "m). Inizio procedura di uscita volontaria (Graceful Leave)." << std::endl;
+                ui::Group(Simulator::Now().GetSeconds(), "LEAVE", "guest{s} {ids} beyond " + ui::Num(14.0 * S)
+                          + " m from the cube, leaving", (int)m_id, 2);
                 ScheduleLeave(); 
             } else if (m_macState == STATE_LISTENING || m_macState == STATE_JOINING) {
-                if (s_verbosity >= 1) std::cout << "\n>>> [ISTERESI] Drone " << m_id
-                          << " si è allontanato durante il Join. Abortito." << std::endl;
+                ui::Group(Simulator::Now().GetSeconds(), "JOIN", "guest{s} {ids} moved away while joining, join aborted",
+                          (int)m_id, 2);
                 m_macState = STATE_OUT_OF_RANGE;
                 m_listenCounter = 0;
             }
@@ -1404,12 +1418,11 @@ void UwbSecurityApp::EvaluateMacState() {
             m_macState = STATE_JOINING;
             m_slotId = m_id;
             m_slotMap[m_id] = m_id;
-            if (s_verbosity >= 1)
-                std::cout << "\n>>> [NODO GUEST] Drone " << m_id << ": ascolto completato, mi annuncio nel mio slot (" << m_id << ")" << std::endl;
+            ui::Group(Simulator::Now().GetSeconds(), "JOIN", "guest{s} {ids} announced in own slot", (int)m_id, 2);
         }
     } else if (m_macState == STATE_JOINING) {
         m_macState = STATE_ACTIVE;
-        if (s_verbosity >= 1) std::cout << ">>> [NODO " << m_id << "] Join completato, ora sono ACTIVE." << std::endl;
+        ui::Group(Simulator::Now().GetSeconds(), "JOIN", "guest{s} {ids} joined the swarm", (int)m_id, 1);
     }
 
     // Ri-schedula il timer per il prossimo frame

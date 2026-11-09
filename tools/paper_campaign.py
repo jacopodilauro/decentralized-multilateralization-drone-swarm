@@ -127,6 +127,15 @@ def sim_args(c):
 
 
 def parse_stdout(path):
+    """Valori della run da summary.json; per le run precedenti (senza summary.json) dalle righe di stdout.txt."""
+    from run_summary import load
+    sm = load(path)
+    if sm is not None:
+        get = lambda k: float(sm[k]) if k in sm else np.nan
+        return {"raggio_guscio_m": get("shell_radius_m"), "frame_ms": get("frame_ms"),
+                "pacchetto_max_byte": get("packet_max_bytes"), "uwb_ricezione_pct": get("uwb_received_pct"),
+                "droni_consenso_cattura": len(set(sm.get("capture_consensus_drones", []))),
+                "espulsioni": int(sm.get("expulsions", 0))}
     r = {}
     txt = open(path, errors="replace").read()
     for key, pat in (("raggio_guscio_m", r"raggio ([\d.]+) m"), ("frame_ms", r"frame TDMA ([\d.]+) ms"),

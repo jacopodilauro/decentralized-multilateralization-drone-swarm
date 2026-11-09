@@ -18,6 +18,11 @@ import pandas as pd
 
 
 def antenna_from_stdout(path):
+    """Antenna e inizio dello spoofer da summary.json; per le run precedenti dalla riga di stdout.txt."""
+    from run_summary import load
+    sm = load(path)
+    if sm is not None and "spoofer_antenna_m" in sm:
+        return np.array([float(x) for x in sm["spoofer_antenna_m"]]), float(sm["spoofer_start_s"])
     with open(path) as f:
         for line in f:
             m = re.search(r"antenna \(\s*(\S+)\s+(\S+)\s+(\S+)\s*\) attivo da t=(\S+) s", line)
