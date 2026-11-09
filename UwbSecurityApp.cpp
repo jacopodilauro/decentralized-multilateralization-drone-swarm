@@ -40,7 +40,6 @@ uint64_t UwbSecurityApp::s_linkOk[6]  = { 0, 0, 0, 0, 0, 0 };
 // Per summary.json (prima gli script li contavano nelle righe di stdout.txt, con le stesse condizioni)
 std::set<uint32_t> UwbSecurityApp::s_consensusIds;
 uint32_t UwbSecurityApp::s_expulsionLines = 0;
-std::set<uint32_t> UwbSecurityApp::s_alarmAnnounced;
 
 void UwbSecurityApp::PrintLinkStats() {
     if (!s_uwbRadio) return;
@@ -237,9 +236,7 @@ void UwbSecurityApp::PrintPacketStats() {
     for (uint32_t id : s_consensusIds) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
     ui::Json("capture_consensus_drones", "[" + ids + "]");
     ui::Json("expulsions", std::to_string(s_expulsionLines));
-    std::vector<int> v(s_consensusIds.begin(), s_consensusIds.end()), a(s_alarmAnnounced.begin(), s_alarmAnnounced.end());
-    ui::Summary("capture", v.empty() ? "no capture consensus" : "consensus reached by " + std::to_string(v.size()) + " drones");
-    ui::Summary("alarms", a.empty() ? "no collective alarms" : "collective alarm on drone" + std::string(a.size() > 1 ? "s " : " ") + ui::IdList(a));
+
 }
 
 void UwbSecurityApp::StartApplication() {
@@ -1053,10 +1050,9 @@ void UwbSecurityApp::ProcessRanging(uint32_t senderId, Eigen::Vector3d claimedGp
     auto prevAlarm = m_collectiveAlarm.find(senderId);
     bool wasAlarm = prevAlarm != m_collectiveAlarm.end() && prevAlarm->second;
     m_collectiveAlarm[senderId] = collectiveAlarm;
-    // Solo stampa: la prima volta che un drone e' sotto allarme collettivo (evento), poi i dettagli per osservatore
+    // Solo stampa: episodi di allarme collettivo (ConsoleUi) e dettagli per osservatore
+    if (collectiveAlarm != wasAlarm) ui::AlarmObserver(currentTime, (int)senderId, (int)m_id, collectiveAlarm);
     if (collectiveAlarm && !wasAlarm) {
-        if (s_alarmAnnounced.insert(senderId).second)
-            ui::Group(currentTime, "ALARM", "collective alarm on drone{s} {ids}", (int)senderId, 1);
         ui::Group(currentTime, "ALARM", "drone " + std::to_string(senderId) + " under alarm at observer{s} {ids}", (int)m_id, 2);
     } else if (!collectiveAlarm && wasAlarm) {
         ui::Group(currentTime, "ALARM", "alarm on drone " + std::to_string(senderId) + " cleared at observer{s} {ids}", (int)m_id, 2);
@@ -1217,6 +1213,7 @@ void UwbSecurityApp::EvaluateSwarmCapture() {
         TakeSnapshot(now);
     if (m_captureConsensus && !beforeC) EnterRelativeMode(now);
     if (!m_captureConsensus) m_relMode = false;
+    if (m_captureConsensus && !beforeC) ui::CaptureConsensus(now);   // solo stampa: primo consenso dello sciame
     if (s_verbosity >= 1 && beforeC != m_captureConsensus) {
         if (m_captureConsensus) s_consensusIds.insert(m_id);   // per summary.json (la vecchia riga "CONSENSO")
         ui::Group(now, "CAPTURE", m_captureConsensus ? "swarm captured: consensus at drone{s} {ids}"

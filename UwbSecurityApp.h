@@ -104,6 +104,7 @@ public:
     // Direzione dello spostamento del GPS dichiarato da un attaccante interno [gradi, 90 = nord: storico]
     void SetAttackDirection(double deg) { m_attackDirX = std::cos(deg * M_PI / 180.0); m_attackDirY = std::sin(deg * M_PI / 180.0); }
     static void PrintPacketStats();
+    static uint32_t ConsensusCount() { return (uint32_t)s_consensusIds.size(); }
     bool IsMalicious() const;
     
     double GetClockOffset() const { return m_clockOffset; }
@@ -146,7 +147,6 @@ private:
     static uint32_t s_maxPktBytes;
     static std::set<uint32_t> s_consensusIds;   // droni che hanno raggiunto il consenso sulla cattura (summary.json)
     static uint32_t s_expulsionLines;           // espulsioni annunciate (summary.json)
-    static std::set<uint32_t> s_alarmAnnounced; // droni finiti sotto allarme collettivo almeno una volta
     double          m_slotDuration;
     uint16_t        m_port;
     Ptr<UWBChannel> m_channel;

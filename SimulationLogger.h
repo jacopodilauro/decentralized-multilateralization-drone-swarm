@@ -3,6 +3,7 @@
 
 #include <Eigen/Dense>
 #include <fstream>
+#include "ConsoleUi.h"
 
 class SimulationLogger {
 public:
@@ -31,6 +32,7 @@ public:
     ) {
         double discrepancy = (estimated_pos - claimed_gps).norm();
         double estimation_error = (estimated_pos - true_pos).norm();
+        ui::Observe(time, sender_id, observer_id, estimation_error);   // solo lettura, per la barra e il riepilogo
 
         csv << time << "," << sender_id << "," << observer_id << ","
             << estimated_pos.x() << "," << estimated_pos.y() << "," << estimated_pos.z() << ","

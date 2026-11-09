@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
+#include <set>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -35,6 +37,19 @@ struct State {
     // intestazione, riepilogo, summary.json
     std::string title;
     std::vector<std::pair<std::string, std::string>> config, summary, json;
+    // scenario (dalla configurazione): chi mente e da quando, quando parte lo spoofer
+    std::set<int> insiders;
+    double attackS = -1.0, spoofS = -1.0;
+    // allarmi collettivi: osservatori che oggi accusano ogni drone, episodi, prime scoperte degli interni
+    struct Ep { int target; double start, end; bool insider, onset; };
+    std::map<int, std::set<int>> accusers;
+    std::map<int, size_t> openEp;          // drone -> indice dell'episodio aperto
+    std::vector<Ep> episodes;
+    std::map<int, double> detected;        // interno -> primo allarme collettivo dopo l'attacco
+    double firstConsensus = -1.0;
+    // errore di stima (dalle righe del CSV, solo letto): recente per la barra, prima dell'attacco per il riepilogo
+    std::vector<float> recentErr, preErr;
+    size_t recentPos = 0;
 };
 inline State& S() { static State s; return s; }
 
@@ -116,7 +131,7 @@ inline void DrawProgress() {
                                    "\xe2\xa0\xb4", "\xe2\xa0\xa6", "\xe2\xa0\xa7", "\xe2\xa0\x87", "\xe2\xa0\x8f" };
     static const char* spinA[] = { "|", "/", "-", "\\" };
     double f = std::min(1.0, std::max(0.0, s.now / s.total));
-    const int W = 24;
+    const int W = 20;
     int full = (int)(f * W + 1e-9);
     std::string bar;
     for (int i = 0; i < W; i++) bar += i < full ? (s.unicode ? "\xe2\x96\x88" : "#") : (s.unicode ? "\xe2\x96\x91" : "-");
@@ -126,8 +141,17 @@ inline void DrawProgress() {
     s.spin++;
     char pct[16];
     std::snprintf(pct, sizeof pct, "%3d%%", (int)(f * 100.0));
+    std::string extra;
+    if (!s.recentErr.empty()) {
+        std::vector<float> v = s.recentErr;
+        std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+        extra += Dot() + "err " + Fmt(v[v.size() / 2], 1) + " m";
+    }
+    size_t active = 0;
+    for (const auto& kv : s.accusers) active += !kv.second.empty();
+    if (!s.recentErr.empty() || active) extra += Dot() + "alarms " + std::to_string(active);
     std::cout << "\r\033[2K  " << Paint("36", sp) << " " << Paint("36", bar) << " " << pct << "  "
-              << Fmt(s.now, 0) << "/" << Fmt(s.total, 0) << " s  ETA " << eta << std::flush;
+              << Fmt(s.now, 0) << "/" << Fmt(s.total, 0) << " s  ETA " << eta << extra << std::flush;
     s.drawn = true;
     s.lastDraw = std::chrono::steady_clock::now();
 }
@@ -214,6 +238,127 @@ inline void Tick(double now) {
     if (s.tty && std::chrono::duration<double>(std::chrono::steady_clock::now() - s.lastDraw).count() >= 0.1)
         DrawProgress();
 }
+inline void Json(const std::string& key, const std::string& value);
+inline std::string JsonStr(const std::string& x);
+
+// ---------------------------------------------------------------- verita' della simulazione (solo per le stampe)
+inline void SetScenario(const std::vector<int>& insiders, double attackS, double spoofS) {
+    State& s = S();
+    s.insiders = std::set<int>(insiders.begin(), insiders.end());
+    s.attackS = insiders.empty() ? -1.0 : attackS;
+    s.spoofS = spoofS;
+}
+inline bool IsLiar(int id, double t) { const State& s = S(); return s.insiders.count(id) && s.attackS >= 0 && t >= s.attackS; }
+inline double FirstAttack() {
+    const State& s = S();
+    double a = -1.0;
+    for (double x : { s.attackS, s.spoofS }) if (x >= 0 && (a < 0 || x < a)) a = x;
+    return a;
+}
+
+// Un osservatore inizia o smette di vedere un allarme collettivo su `target`. Episodio = dal primo osservatore che accusa
+// all'ultimo che smette. Evento all'inizio (interno scoperto / falso allarme / transitorio dello spoofer) e alla fine.
+inline void AlarmObserver(double t, int target, int observer, bool on) {
+    State& s = S();
+    auto& acc = s.accusers[target];
+    bool wasOn = !acc.empty();
+    if (on) acc.insert(observer); else acc.erase(observer);
+    bool isOn = !acc.empty();
+    if (isOn && !wasOn) {
+        bool liar = IsLiar(target, t);
+        bool onset = !liar && s.spoofS >= 0 && t >= s.spoofS && s.firstConsensus < 0;
+        s.openEp[target] = s.episodes.size();
+        s.episodes.push_back({ target, t, -1.0, liar, onset });
+        if (liar && !s.detected.count(target)) {
+            s.detected[target] = t;
+            Group(t, "ALARM", "insider{s} {ids} detected " + Fmt(t - s.attackS, 1) + " s after the attack", target, 1);
+        } else if (liar) {
+            Group(t, "ALARM", "alarm on insider{s} {ids} again", target, 1);
+        } else if (onset) {
+            Group(t, "ALARM", "spoofer onset: alarm on drone{s} {ids}", target, 1);
+        } else {
+            Group(t, "ALARM", "false alarm on honest drone{s} {ids}", target, 1);
+        }
+    } else if (!isOn && wasOn) {
+        auto it = s.openEp.find(target);
+        if (it != s.openEp.end()) {
+            State::Ep& e = s.episodes[it->second];
+            e.end = t;
+            s.openEp.erase(it);
+            if (!e.onset)   // il transitorio dello spoofer si chiude con il consenso: non serve una riga per drone
+                Group(t, "CLEAR", "alarm on drone{s} {ids} cleared after " + Fmt(t - e.start, 1) + " s", target, 1);
+        }
+    }
+}
+
+inline void CaptureConsensus(double t) { if (S().firstConsensus < 0) S().firstConsensus = t; }
+
+// Una riga del CSV: errore di stima di `target` visto da `observer` (solo lettura, per barra e riepilogo)
+inline void Observe(double t, int target, int observer, double err) {
+    State& s = S();
+    if (IsLiar(target, t) || IsLiar(observer, t)) return;
+    const size_t K = 400;
+    if (s.recentErr.size() < K) s.recentErr.push_back((float)err);
+    else { s.recentErr[s.recentPos] = (float)err; s.recentPos = (s.recentPos + 1) % K; }
+    double a = FirstAttack();
+    if (t >= 15.0 && (a < 0 || t < a)) s.preErr.push_back((float)err);   // 15 s: come il test dei sospetti
+}
+
+// Riepilogo dei risultati (in testa al riepilogo) e chiavi in summary.json
+inline void ScenarioSummary(uint32_t nConsensus, uint32_t nDrones, const std::vector<std::string>& files) {
+    State& s = S();
+    std::vector<std::pair<std::string, std::string>> top;
+    double end = s.total;
+    if (!s.insiders.empty()) {
+        std::string det, miss, js;
+        for (int id : s.insiders) {
+            auto it = s.detected.find(id);
+            if (it == s.detected.end()) { miss += (miss.empty() ? "" : ", ") + std::to_string(id); continue; }
+            det += (det.empty() ? "drone " : ", ") + std::to_string(id) + " after " + Fmt(it->second - s.attackS, 1) + " s";
+            js += std::string(js.empty() ? "" : ", ") + JsonStr(std::to_string(id)) + ": " + Fmt(it->second - s.attackS, 2);
+        }
+        top.emplace_back("insiders", std::to_string(s.detected.size()) + "/" + std::to_string(s.insiders.size())
+                         + " alarmed" + (det.empty() ? "" : ": " + det) + (miss.empty() ? "" : "; never alarmed: " + miss));
+        Json("insider_first_alarm_s", "{" + js + "}");
+    }
+    std::vector<int> fa, onset;
+    double faTime = 0.0;
+    size_t faEp = 0;
+    for (const auto& e : s.episodes) {
+        if (e.insider) continue;
+        if (e.onset) { onset.push_back(e.target); continue; }
+        fa.push_back(e.target); faEp++;
+        faTime += (e.end >= 0 ? e.end : end) - e.start;
+    }
+    std::sort(fa.begin(), fa.end()); fa.erase(std::unique(fa.begin(), fa.end()), fa.end());
+    if (!s.insiders.empty() || !fa.empty())
+        top.emplace_back("false alarms", fa.empty() ? "none" : "honest drone" + std::string(fa.size() > 1 ? "s " : " ")
+                         + IdList(fa) + " (" + std::to_string(faEp) + " episode" + (faEp > 1 ? "s, " : ", ")
+                         + Fmt(faTime, 1) + " s in total)");
+    std::string faJs;
+    for (int id : fa) faJs += (faJs.empty() ? "" : ", ") + std::to_string(id);
+    Json("false_alarm_drones", "[" + faJs + "]");
+    std::sort(onset.begin(), onset.end()); onset.erase(std::unique(onset.begin(), onset.end()), onset.end());
+    if (!onset.empty()) top.emplace_back("spoofer onset", "drone" + std::string(onset.size() > 1 ? "s " : " ") + IdList(onset)
+                                         + " alarmed before any capture consensus");
+    if (s.spoofS >= 0)
+        top.emplace_back("capture", nConsensus == 0 ? "no capture consensus" :
+                         std::to_string(nConsensus) + "/" + std::to_string(nDrones) + " drones, first consensus "
+                         + Fmt(s.firstConsensus - s.spoofS, 2) + " s after the spoofer");
+    if (!s.preErr.empty()) {
+        std::vector<float> v = s.preErr;
+        std::sort(v.begin(), v.end());
+        auto q = [&v](double p) { return v[std::min(v.size() - 1, (size_t)(p * (v.size() - 1) + 0.5))]; };
+        top.emplace_back("localization", "honest drones " + std::string(FirstAttack() >= 0 ? "before the attack" : "after 15 s")
+                         + ": median " + Fmt(q(0.5), 2) + " m, p95 " + Fmt(q(0.95), 2) + " m");
+    }
+    std::string fl;
+    for (const auto& f : files) fl += (fl.empty() ? "" : ", ") + f;
+    top.emplace_back("files", fl);
+    top.insert(top.end(), s.summary.begin(), s.summary.end());
+    s.summary.swap(top);
+}
+
 // ---------------------------------------------------------------- intestazione, riepilogo, summary.json
 inline void Title(const std::string& t) { S().title = t; }
 inline void Config(const std::string& key, const std::string& value) { S().config.emplace_back(key, value); }
@@ -229,8 +374,19 @@ inline std::string JsonStr(const std::string& x) {
 inline void PrintBlock(const std::vector<std::pair<std::string, std::string>>& rows) {
     for (const auto& [k, v] : rows) {
         std::string key = k;
-        key.resize(std::max<size_t>(k.size(), 10), ' ');
-        std::cout << "  " << Paint("1", key) << "  " << v << "\n";
+        key.resize(std::max<size_t>(k.size(), 13), ' ');
+        // valori lunghi a capo, allineati sotto la colonna dei valori (righe entro 80 colonne)
+        const size_t col = 2 + key.size() + 2, width = 80 > col + 20 ? 80 - col : 20;
+        std::string rest = v, out;
+        while (rest.size() > width) {
+            size_t cut = rest.rfind(", ", width - 1);   // meglio dopo una virgola: non separa un numero dalla sua unita'
+            if (cut != std::string::npos && cut > width / 2) cut += 1;
+            else cut = rest.rfind(' ', width);
+            if (cut == std::string::npos || cut == 0) break;
+            out += rest.substr(0, cut) + "\n" + std::string(col, ' ');
+            rest = rest.substr(cut + 1);
+        }
+        std::cout << "  " << Paint(k == "warning" ? "1;33" : "1", key) << "  " << out << rest << "\n";
     }
 }
 

@@ -404,6 +404,14 @@ int main(int argc, char *argv[])
     if (!cfgInsiders.empty()) ui::Config("insiders", cfgInsiders);
     if (cfgSpoof.empty() && cfgInsiders.empty()) ui::Config("attack", "none");
     if (netanim) ui::Config("output", "NetAnim trace esperimento_swarm.xml");
+    // Avvisi su configurazioni che sappiamo problematiche (solo stampa)
+    std::vector<int> liars(maliciousIds.begin(), maliciousIds.end());
+    if (!liars.empty() && totalNodes < liars.size() + 5)
+        ui::Config("warning", "N >= k + 5 violated (N = " + std::to_string(totalNodes) + ", k = " + std::to_string(liars.size())
+                   + "): too few trusted anchors, the system is not expected to hold");
+    if (anchorVel == "ekf" && totalNodes >= 30)
+        ui::Config("warning", "--anchorVel=ekf is known to diverge with 30 or more drones: use --anchorVel=gps");
+    ui::SetScenario(liars, attackTime, g_spoofStartS);
     ui::Json("sim_time_s", ui::Num(setSimTime));
     ui::Json("seed", std::to_string(runId));
     ui::PrintHeader();
@@ -417,6 +425,12 @@ int main(int argc, char *argv[])
     if (anim) {
         delete anim;
     }
+    std::vector<std::string> files = { csvFileName, "ground_truth.csv" };   // i file scritti da questa run
+    if (spoof) { files.push_back("gnss_log.csv"); files.push_back("pps_log.csv"); }
+    if (uwbLog) files.push_back("uwb_log.csv");
+    if (netanim) files.push_back("esperimento_swarm.xml");
+    files.push_back("summary.json");
+    ui::ScenarioSummary(UwbSecurityApp::ConsensusCount(), totalNodes, files);
     ui::Finish("summary.json");
     return 0;
 }
