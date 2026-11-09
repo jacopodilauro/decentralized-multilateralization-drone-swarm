@@ -3,7 +3,7 @@
 //   - la distanza di ns-3 (GetDistanceFrom) e' identica bit per bit;
 //   - ns-3 calcola EIRP - (L0 + 10 n log10 d) - perdita d'antenna: identico bit per bit (prova che usa la formula attesa);
 //   - UwbLink.h calcola (EIRP - L0) - 10 n log10 d - perdita d'antenna: scarto <= 1e-12 dB (ultima cifra).
-#include "../UwbLinkNs3.h"
+#include "../include/UwbLinkNs3.h"
 #include "ns3/constant-position-mobility-model.h"
 #include <cmath>
 #include <cstdio>

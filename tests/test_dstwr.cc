@@ -1,7 +1,7 @@
 // Test isolato del modello di orologio e del DS-TWR (nessuna dipendenza da ns-3).
 // Compilazione:  g++ -std=c++20 -O2 -I/usr/include/eigen3 tests/test_dstwr.cc -o test_dstwr
 
-#include "../DsTwr.h"
+#include "../include/DsTwr.h"
 #include <Eigen/Dense>
 #include <cmath>
 #include <cstdio>

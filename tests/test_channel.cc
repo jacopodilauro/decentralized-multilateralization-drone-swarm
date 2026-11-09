@@ -3,7 +3,7 @@
 //   g++ -std=c++20 -I$NS3_PREFIX/include -I/usr/include/eigen3 tests/test_channel.cc UWBChannel.cpp
 //       -L$NS3_PREFIX/lib64 -Wl,-rpath,$NS3_PREFIX/lib64 -lns3.44-core -o test_channel
 
-#include "../UWBChannel.h"
+#include "../include/UWBChannel.h"
 #include <cmath>
 #include <cstdio>
 #include <vector>

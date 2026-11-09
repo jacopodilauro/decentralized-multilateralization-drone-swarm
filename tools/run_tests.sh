@@ -23,18 +23,18 @@ run() {   # nome, comando di compilazione
     [[ "$last" == *"TUTTI I TEST SUPERATI"* ]] || fail=1
 }
 
-run test_ekf    g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_ekf.cc EKF.cpp
-run test_dstwr  g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_dstwr.cc
-run test_gnss   g++ -std=c++20 -O2 -I"$EIGEN_INC" tests/test_gnss.cc
-run test_uwblink g++ -std=c++20 -O2 tests/test_uwblink.cc
+run test_ekf    g++ -std=c++20 -Iinclude -O2 -I"$EIGEN_INC" tests/test_ekf.cc src/EKF.cpp
+run test_dstwr  g++ -std=c++20 -Iinclude -O2 -I"$EIGEN_INC" tests/test_dstwr.cc
+run test_gnss   g++ -std=c++20 -Iinclude -O2 -I"$EIGEN_INC" tests/test_gnss.cc
+run test_uwblink g++ -std=c++20 -Iinclude -O2 tests/test_uwblink.cc
 
 if [[ -n "${NS3_PREFIX:-}" ]]; then
     NS3_VER="${NS3_VER:-3.44}"
     LIBDIR="$NS3_PREFIX/lib64"; [[ -d "$LIBDIR" ]] || LIBDIR="$NS3_PREFIX/lib"
     NS="-I$NS3_PREFIX/include -L$LIBDIR -Wl,-rpath,$LIBDIR -Wl,--allow-shlib-undefined"
-    run test_header  g++ -std=c++20 $NS tests/test_header.cc UwbHeader.cpp -lns$NS3_VER-network -lns$NS3_VER-core
-    run test_channel g++ -std=c++20 $NS -I"$EIGEN_INC" tests/test_channel.cc UWBChannel.cpp -lns$NS3_VER-core
-    run test_uwblink_ns3 g++ -std=c++20 -O2 $NS tests/test_uwblink_ns3.cc -lns$NS3_VER-propagation -lns$NS3_VER-mobility -lns$NS3_VER-core
+    run test_header  g++ -std=c++20 -Iinclude $NS tests/test_header.cc src/UwbHeader.cpp -lns$NS3_VER-network -lns$NS3_VER-core
+    run test_channel g++ -std=c++20 -Iinclude $NS -I"$EIGEN_INC" tests/test_channel.cc src/UWBChannel.cpp -lns$NS3_VER-core
+    run test_uwblink_ns3 g++ -std=c++20 -Iinclude -O2 $NS tests/test_uwblink_ns3.cc -lns$NS3_VER-propagation -lns$NS3_VER-mobility -lns$NS3_VER-core
 else
     echo "[test_header, test_channel, test_uwblink_ns3] saltati: imposta NS3_PREFIX per eseguirli"
 fi

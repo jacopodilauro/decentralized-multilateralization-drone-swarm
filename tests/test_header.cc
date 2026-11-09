@@ -7,7 +7,7 @@
 //       -L$NS3_PREFIX/lib64 -Wl,-rpath,$NS3_PREFIX/lib64 -lns3.44-network -lns3.44-core -o test_header
 //   (tutto su una riga)
 
-#include "../UwbHeader.h"
+#include "../include/UwbHeader.h"
 #include "ns3/packet.h"
 #include <cmath>
 #include <cstdio>

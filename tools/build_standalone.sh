@@ -25,8 +25,8 @@ LIBS=""; for m in $MODULES; do LIBS="$LIBS -lns$NS3_VER-$m"; done
 
 cd "$(dirname "$0")/.."
 g++ -std=c++20 -O2 -Wall -Wno-unused-parameter \
-    -I"$NS3_PREFIX/include" -I"$EIGEN_INC" \
-    main.cpp UwbSecurityApp.cpp UwbHeader.cpp Trajectories.cpp EKF.cpp UWBChannel.cpp \
+    -Iinclude -I"$NS3_PREFIX/include" -I"$EIGEN_INC" \
+    src/main.cpp src/UwbSecurityApp.cpp src/UwbHeader.cpp src/Trajectories.cpp src/EKF.cpp src/UWBChannel.cpp \
     -L"$LIBDIR" -Wl,-rpath,"$LIBDIR" -Wl,--allow-shlib-undefined $LIBS \
     -o "$OUTPUT"
 echo "Compilato: $(pwd)/$OUTPUT"

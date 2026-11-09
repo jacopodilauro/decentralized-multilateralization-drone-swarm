@@ -1,7 +1,7 @@
 // Test isolato del ricevitore GNSS (nessuna dipendenza da ns-3).
 // Compilazione:  g++ -std=c++20 -O2 -I/usr/include/eigen3 tests/test_gnss.cc -o test_gnss
 
-#include "../GnssModel.h"
+#include "../include/GnssModel.h"
 #include <algorithm>
 #include <cstdio>
 #include <vector>

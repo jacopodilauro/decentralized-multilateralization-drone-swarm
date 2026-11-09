@@ -4,7 +4,7 @@
 // Con -DOLD_EKF compila contro un EKF senza il campo 'delay' e stampa solo la traiettoria
 // dello stato (serve a dimostrare che con delay = 0 i risultati sono identici).
 
-#include "../EKF.h"
+#include "../include/EKF.h"
 #include <cmath>
 #include <cstdio>
 #include <random>
