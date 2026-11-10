@@ -181,6 +181,7 @@ tests/      isolated tests of the single components
 tools/      campaign, report, figures, spoofer localization, regression helpers
 reference/  reference metrics of earlier development steps, used by the regression checks
 viwer.py    interactive viewer of a single run
+plotv2.py   viewer v2: English labels, button for the votes against every drone
 ```
 
 ## Tests
